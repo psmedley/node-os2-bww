@@ -218,7 +218,7 @@
             '<@(cares_sources_mac)',
           ]
         }],
-        [ 'OS=="freebsd" or OS=="dragonflybsd"', {
+        [ 'OS=="freebsd" or OS=="dragonflybsd" or OS=="os2"', {
           'include_dirs': [ 'config/freebsd' ],
           'sources': [ 'config/freebsd/ares_config.h' ]
         }],

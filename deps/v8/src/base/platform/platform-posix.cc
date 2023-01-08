@@ -13,7 +13,9 @@
 #include <pthread_np.h>  // for pthread_set_name_np
 #endif
 #include <fcntl.h>
+#ifndef __OS2__
 #include <sched.h>  // for sched_yield
+#endif
 #include <stdio.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -64,7 +66,7 @@
 #include <sys/resource.h>
 #endif
 
-#if !defined(_AIX) && !defined(V8_OS_FUCHSIA)
+#if !defined(_AIX) && !defined(V8_OS_FUCHSIA) && !V8_OS_OS2
 #include <sys/syscall.h>
 #endif
 
@@ -104,7 +106,7 @@ DEFINE_LAZY_LEAKY_OBJECT_GETTER(RandomNumberGenerator,
                                 GetPlatformRandomNumberGenerator)
 static LazyMutex rng_mutex = LAZY_MUTEX_INITIALIZER;
 
-#if !V8_OS_FUCHSIA
+#if !V8_OS_FUCHSIA && !V8_OS_OS2
 #if V8_OS_DARWIN
 // kMmapFd is used to pass vm_alloc flags to tag the region with the user
 // defined tag 255 This helps identify V8-allocated regions in memory analysis
@@ -198,7 +200,7 @@ void* Allocate(void* hint, size_t size, OS::MemoryPermission access,
   return result;
 }
 
-#endif  // !V8_OS_FUCHSIA
+#endif  // !V8_OS_FUCHSIA && !V8_OS_OS2
 
 }  // namespace
 
@@ -394,7 +396,7 @@ void* OS::GetRandomMmapAddr() {
 }
 
 // TODO(bbudge) Move Cygwin and Fuchsia stuff into platform-specific files.
-#if !V8_OS_CYGWIN && !V8_OS_FUCHSIA
+#if !V8_OS_CYGWIN && !V8_OS_FUCHSIA && !V8_OS_OS2
 // static
 void* OS::Allocate(void* hint, size_t size, size_t alignment,
                    MemoryPermission access) {
@@ -607,7 +609,7 @@ bool OS::HasLazyCommits() {
   return false;
 #endif
 }
-#endif  // !V8_OS_CYGWIN && !V8_OS_FUCHSIA
+#endif  // !V8_OS_CYGWIN && !V8_OS_FUCHSIA && !V8_OS_OS2
 
 const char* OS::GetGCFakeMMapFile() {
   return g_gc_fake_mmap;
@@ -1219,7 +1221,7 @@ void Thread::SetThreadLocal(LocalStorageKey key, void* value) {
 // keep this version in POSIX as most Linux-compatible derivatives will
 // support it. MacOS and FreeBSD are different here.
 #if !defined(V8_OS_FREEBSD) && !defined(V8_OS_DARWIN) && !defined(_AIX) && \
-    !defined(V8_OS_SOLARIS)
+    !defined(V8_OS_SOLARIS) && !defined(V8_OS_OS2)
 
 // static
 Stack::StackSlot Stack::GetStackStart() {
@@ -1246,7 +1248,7 @@ Stack::StackSlot Stack::GetStackStart() {
 }
 
 #endif  // !defined(V8_OS_FREEBSD) && !defined(V8_OS_DARWIN) &&
-        // !defined(_AIX) && !defined(V8_OS_SOLARIS)
+        // !defined(_AIX) && !defined(V8_OS_SOLARIS) && !defined(V8_OS_OS2)
 
 // static
 Stack::StackSlot Stack::GetCurrentStackPosition() {
