@@ -85,6 +85,7 @@ ares_status_t ares_append_ai_node(int aftype, unsigned short port,
     node->ai_ttl     = (int)ttl;
   }
 
+#ifndef __OS2__
   if (aftype == AF_INET6) {
     struct sockaddr_in6 *sin6 = ares_malloc(sizeof(*sin6));
     if (!sin6) {
@@ -102,6 +103,7 @@ ares_status_t ares_append_ai_node(int aftype, unsigned short port,
     node->ai_addr    = (struct sockaddr *)sin6;
     node->ai_ttl     = (int)ttl;
   }
+#endif
 
   return ARES_SUCCESS;
 }
@@ -112,6 +114,7 @@ static ares_status_t
 {
   ares_status_t status = ARES_SUCCESS;
 
+#ifndef __OS2__
   if (aftype == AF_UNSPEC || aftype == AF_INET6) {
     struct ares_in6_addr addr6;
     ares_inet_pton(AF_INET6, "::1", &addr6);
@@ -120,6 +123,7 @@ static ares_status_t
       return status;
     }
   }
+#endif
 
   if (aftype == AF_UNSPEC || aftype == AF_INET) {
     struct in_addr addr4;
