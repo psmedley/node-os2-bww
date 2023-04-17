@@ -262,7 +262,7 @@ static void PrintVersionInformation(JSONWriter* writer) {
   writer->json_keyvalue("nodejsVersion", buf.str());
   buf.str("");
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__OS2__)
   // Report compiler and runtime glibc versions where possible.
   const char* (*libc_version)();
   *(reinterpret_cast<void**>(&libc_version)) =
@@ -361,6 +361,7 @@ static void PrintNetworkInterfaceInfo(JSONWriter* writer) {
         writer->json_keyvalue("address", ip);
         writer->json_keyvalue("netmask", netmask);
         writer->json_keyvalue("family", "IPv4");
+#ifndef __OS2__
       } else if (interfaces[i].address.address4.sin_family == AF_INET6) {
         uv_ip6_name(&interfaces[i].address.address6, ip, sizeof(ip));
         uv_ip6_name(&interfaces[i].netmask.netmask6, netmask, sizeof(netmask));
@@ -369,6 +370,7 @@ static void PrintNetworkInterfaceInfo(JSONWriter* writer) {
         writer->json_keyvalue("family", "IPv6");
         writer->json_keyvalue("scopeid",
                               interfaces[i].address.address6.sin6_scope_id);
+#endif
       } else {
         writer->json_keyvalue("family", "unknown");
       }
