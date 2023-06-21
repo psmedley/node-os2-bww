@@ -6,6 +6,9 @@
 #define INCL_EXAPIS
 #include <os2.h>
 
+// TODO: Use map/unmap for the moment (port to native later).
+#include <sys/mman.h>
+
 #include "src/base/macros.h"
 #include "src/base/platform/platform-posix-time.h"
 #include "src/base/platform/platform-posix.h"
@@ -117,6 +120,24 @@ void* OS::Allocate(void* address, size_t size, size_t alignment,
   return base;
 }
 
+void* OS::AllocateShared(void* hint, size_t size, MemoryPermission access,
+                         PlatformSharedMemoryHandle handle, uint64_t offset) {
+  // TODO: Use map/unmap for the moment (port to native later).
+  DCHECK_EQ(0, size % AllocatePageSize());
+  int prot = GetProtectionFromMemoryPermission(access);
+  int fd = FileDescriptorFromSharedMemoryHandle(handle);
+  void* result = mmap(hint, size, prot, MAP_SHARED, fd, offset);
+  if (result == MAP_FAILED) return nullptr;
+  return result;
+}
+
+// static
+void OS::FreeShared(void* address, size_t size) {
+  // TODO: Use map/unmap for the moment (port to native later).
+  DCHECK_EQ(0, size % AllocatePageSize());
+  CHECK_EQ(0, munmap(address, size));
+}
+
 // static
 void OS::Free(void* address, const size_t size) {
   DCHECK_EQ(0, reinterpret_cast<uintptr_t>(address) % AllocatePageSize());
@@ -154,6 +175,36 @@ bool OS::SetPermissions(void* address, size_t size, MemoryPermission access) {
   return arc == NO_ERROR;
 }
 
+bool OS::DiscardSystemPages(void* address, size_t size) {
+  // OS/2 does not seem to support this function.
+  return true;
+}
+
+// static
+bool OS::DecommitPages(void* address, size_t size) {
+  return SetPermissions(address, size, MemoryPermission::kNoAccess);
+}
+
+// static
+bool OS::CanReserveAddressSpace() {
+  // TODO: Implement on OS/2.
+  return false;
+}
+
+// static
+Optional<AddressSpaceReservation> OS::CreateAddressSpaceReservation(
+    void* hint, size_t size, size_t alignment,
+    MemoryPermission max_permission) {
+  CHECK(CanReserveAddressSpace());
+  UNREACHABLE();  // TODO: Port to OS/2.
+  return {};
+}
+
+// static
+void OS::FreeAddressSpaceReservation(AddressSpaceReservation reservation) {
+  UNREACHABLE();  // TODO: Port to OS/2.
+}
+
 // static
 bool OS::HasLazyCommits() {
   // TODO: OS/2 doen't seem to have lazy commits.
@@ -166,6 +217,23 @@ std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
 
 void OS::SignalCodeMovingGC() {
   // Nothing to do on OS/2.
+}
+
+void OS::AdjustSchedulingParams() {}
+
+std::vector<OS::MemoryRange> OS::GetFreeMemoryRangesWithin(
+    OS::Address boundary_start, OS::Address boundary_end, size_t minimum_size,
+    size_t alignment) {
+  // TODO: Port to OS/2.
+  return {};
+}
+
+// static
+Stack::StackSlot Stack::GetStackStart() {
+  PTIB ptib;
+  if (DosGetInfoBlocks(&ptib, NULL))
+    return nullptr;
+  return ptib->tib_pstack;
 }
 
 }  // namespace base
