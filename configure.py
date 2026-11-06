@@ -1569,6 +1569,12 @@ def configure_openssl(o):
   variables['openssl_is_fips'] = b(options.openssl_is_fips)
   variables['node_fipsinstall'] = b(False)
 
+  # The bundled OpenSSL asm sources are generated for ELF targets and do not
+  # assemble with the OS/2 (a.out/OMF) toolchain, so build without asm there.
+  if flavor == 'os2' and not options.shared_openssl and \
+     not options.without_ssl:
+    options.openssl_no_asm = True
+
   if options.openssl_no_asm:
     variables['openssl_no_asm'] = 1
 
