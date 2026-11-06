@@ -8,6 +8,7 @@
 #include <array>
 
 #include "src/base/compiler-specific.h"
+#include "src/common/globals.h"
 #include "src/zone/zone-containers.h"
 #include "src/zone/zone.h"
 

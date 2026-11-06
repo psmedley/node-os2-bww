@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --experimental-web-snapshots --allow-natives-syntax --verify-heap
+// Flags: --experimental-d8-web-snapshot-api --allow-natives-syntax
+
+
 
 const external_1 = {external: 1};
 const external_2 = {external: 2};
@@ -14,67 +16,68 @@ const object = {
 };
 
 (function testNoExternals() {
-  const snapshot = WebSnapshot.serialize(object);
-  const deserialized = WebSnapshot.deserialize(snapshot);
+  const snapshot = %WebSnapshotSerialize(object);
+  const deserialized = %WebSnapshotDeserialize(snapshot);
   %HeapObjectVerify(deserialized);
-  assertEquals(object, deserialized);
-  assertEquals(external_1, deserialized.b);
-  assertNotSame(external_1, deserialized.b);
-  assertEquals(external_2, deserialized.d.d_a);
-  assertNotSame(external_2, deserialized.d.d_a);
+  assertEquals(deserialized, object);
+  assertEquals(deserialized.b, external_1);
+  assertNotSame(deserialized.b, external_1);
+  assertEquals(deserialized.d.d_a, external_2);
+  assertNotSame(deserialized.d.d_a, external_2);
 })();
 
 (function testOneExternals() {
-  const externals = [external_1];
-  const snapshot = WebSnapshot.serialize(object, externals);
+  const externals = [ external_1];
+  const snapshot = %WebSnapshotSerialize(object, externals);
   const replaced_externals = [{replacement:1}]
-  const deserialized = WebSnapshot.deserialize(snapshot, replaced_externals);
+  const deserialized = %WebSnapshotDeserialize(snapshot, replaced_externals);
   %HeapObjectVerify(deserialized);
-  assertEquals(object.a, deserialized.a);
-  assertSame(replaced_externals[0], deserialized.b);
-  assertArrayEquals([replaced_externals[0], external_2], deserialized.c);
-  assertSame(replaced_externals[0], deserialized.c[0]);
-  assertNotSame(external_2, deserialized.c[1]);
-  assertEquals(external_2, deserialized.d.d_a);
-  assertNotSame(external_2, deserialized.d.d_a);
+  assertEquals(deserialized.a, object.a);
+  assertSame(deserialized.b, replaced_externals[0]);
+  assertArrayEquals(deserialized.c, [replaced_externals[0], external_2]);
+  assertSame(deserialized.c[0], replaced_externals[0]);
+  assertNotSame(deserialized.c[1], external_2);
+  assertEquals(deserialized.d.d_a, external_2);
+  assertNotSame(deserialized.d.d_a, external_2);
 })();
 
 (function testTwoExternals() {
   const externals = [external_1, external_2];
-  const snapshot = WebSnapshot.serialize(object, externals);
+  const snapshot = %WebSnapshotSerialize(object, externals);
   const replaced_externals = [{replacement:1}, {replacement:2}]
-  const deserialized = WebSnapshot.deserialize(snapshot, replaced_externals);
+  const deserialized = %WebSnapshotDeserialize(snapshot, replaced_externals);
   %HeapObjectVerify(deserialized);
-  assertEquals(object.a, deserialized.a);
+  assertEquals(deserialized.a, object.a);
   assertSame(deserialized.b, replaced_externals[0]);
-  assertArrayEquals(replaced_externals, deserialized.c);
-  assertSame(replaced_externals[0], deserialized.c[0]);
-  assertSame(replaced_externals[1], deserialized.c[1]);
-  assertSame(replaced_externals[1], deserialized.d.d_a);
+  assertArrayEquals(deserialized.c, replaced_externals);
+  assertSame(deserialized.c[0], replaced_externals[0]);
+  assertSame(deserialized.c[1], replaced_externals[1]);
+  assertSame(deserialized.d.d_a, replaced_externals[1]);
 })();
+
 
 (function testApiObject() {
   const api_object = new d8.dom.Div();
   const source_1 = [{}, api_object];
-  assertThrows(() => WebSnapshot.serialize(source_1));
+  assertThrows(() => %WebSnapshotSerialize(source_1));
 
   let externals = [external_1]
   const source_2 = [{}, external_1, api_object, api_object];
-  const snapshot_2 = WebSnapshot.serialize(source_2, externals);
+  const snapshot_2 = %WebSnapshotSerialize(source_2, externals);
   %HeapObjectVerify(externals);
   // Check that the unhandled api object is added to the externals.
-  assertArrayEquals([external_1, api_object], externals);
+  assertArrayEquals(externals, [external_1, api_object]);
 
-  assertThrows(() => WebSnapshot.deserialize(snapshot_2));
-  assertThrows(() => WebSnapshot.deserialize(snapshot_2, []));
-  assertThrows(() => WebSnapshot.deserialize(snapshot_2, [external_1]));
+  assertThrows(() => %WebSnapshotDeserialize(snapshot_2));
+  assertThrows(() => %WebSnapshotDeserialize(snapshot_2, []));
+  assertThrows(() => %WebSnapshotDeserialize(snapshot_2, [external_1]));
 
-  const result_2 = WebSnapshot.deserialize(snapshot_2, [external_1, api_object]);
+  const result_2 = %WebSnapshotDeserialize(snapshot_2, [external_1, api_object]);
   %HeapObjectVerify(externals);
   %HeapObjectVerify(result_2);
-  assertArrayEquals(source_2, result_2);
-  assertNotSame(source_2[0], result_2[0]);
-  assertSame(external_1, result_2[1]);
-  assertSame(api_object, result_2[2]);
-  assertSame(api_object, result_2[3]);
+  assertArrayEquals(result_2, source_2);
+  assertNotSame(result_2[0], source_2[0]);
+  assertSame(result_2[1], external_1);
+  assertSame(result_2[2], api_object);
+  assertSame(result_2[3], api_object);
 })();

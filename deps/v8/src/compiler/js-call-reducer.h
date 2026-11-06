@@ -6,6 +6,7 @@
 #define V8_COMPILER_JS_CALL_REDUCER_H_
 
 #include "src/base/flags.h"
+#include "src/compiler/frame-states.h"
 #include "src/compiler/globals.h"
 #include "src/compiler/graph-reducer.h"
 #include "src/compiler/node-properties.h"
@@ -110,7 +111,6 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   Reduction ReduceArrayIndexOf(Node* node);
   Reduction ReduceArrayIsArray(Node* node);
   Reduction ReduceArrayMap(Node* node, const SharedFunctionInfoRef& shared);
-  Reduction ReduceArrayPrototypeAt(Node* node);
   Reduction ReduceArrayPrototypePop(Node* node);
   Reduction ReduceArrayPrototypePush(Node* node);
   Reduction ReduceArrayPrototypeShift(Node* node);
@@ -200,9 +200,6 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
 
   Reduction ReduceMapPrototypeHas(Node* node);
   Reduction ReduceMapPrototypeGet(Node* node);
-  Reduction ReduceSetPrototypeHas(Node* node);
-  Reduction ReduceCollectionPrototypeHas(Node* node,
-                                         CollectionKind collection_kind);
   Reduction ReduceCollectionIteration(Node* node,
                                       CollectionKind collection_kind,
                                       IterationKind iteration_kind);

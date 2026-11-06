@@ -60,6 +60,8 @@ namespace node {
   V(PROCESSWRAP)                                                              \
   V(PROMISE)                                                                  \
   V(QUERYWRAP)                                                                \
+  V(QUIC_LOGSTREAM)                                                           \
+  V(QUIC_PACKET)                                                              \
   V(SHUTDOWNWRAP)                                                             \
   V(SIGNALWRAP)                                                               \
   V(STATWATCHER)                                                              \
@@ -96,17 +98,9 @@ namespace node {
 #define NODE_ASYNC_CRYPTO_PROVIDER_TYPES(V)
 #endif  // HAVE_OPENSSL
 
-#if HAVE_INSPECTOR
-#define NODE_ASYNC_INSPECTOR_PROVIDER_TYPES(V)                                \
-  V(INSPECTORJSBINDING)
-#else
-#define NODE_ASYNC_INSPECTOR_PROVIDER_TYPES(V)
-#endif  // HAVE_INSPECTOR
-
-#define NODE_ASYNC_PROVIDER_TYPES(V)                                          \
-  NODE_ASYNC_NON_CRYPTO_PROVIDER_TYPES(V)                                     \
-  NODE_ASYNC_CRYPTO_PROVIDER_TYPES(V)                                         \
-  NODE_ASYNC_INSPECTOR_PROVIDER_TYPES(V)
+#define NODE_ASYNC_PROVIDER_TYPES(V)                                           \
+  NODE_ASYNC_NON_CRYPTO_PROVIDER_TYPES(V)                                      \
+  NODE_ASYNC_CRYPTO_PROVIDER_TYPES(V)
 
 class Environment;
 class DestroyParam;
@@ -207,7 +201,7 @@ class AsyncWrap : public BaseObject {
       v8::Local<v8::Value>* argv);
 
   virtual std::string diagnostic_name() const;
-  std::string MemoryInfoName() const override;
+  const char* MemoryInfoName() const override;
 
   static void WeakCallback(const v8::WeakCallbackInfo<DestroyParam> &info);
 

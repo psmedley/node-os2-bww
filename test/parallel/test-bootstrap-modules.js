@@ -10,7 +10,6 @@ const assert = require('assert');
 
 const expectedModules = new Set([
   'Internal Binding async_wrap',
-  'Internal Binding blob',
   'Internal Binding buffer',
   'Internal Binding builtins',
   'Internal Binding config',
@@ -19,13 +18,12 @@ const expectedModules = new Set([
   'Internal Binding credentials',
   'Internal Binding errors',
   'Internal Binding fs',
-  'Internal Binding messaging',
   'Internal Binding mksnapshot',
+  'Internal Binding messaging',
   'Internal Binding module_wrap',
   'Internal Binding options',
   'Internal Binding performance',
   'Internal Binding process_methods',
-  'Internal Binding report',
   'Internal Binding string_decoder',
   'Internal Binding symbols',
   'Internal Binding task_queue',
@@ -36,7 +34,6 @@ const expectedModules = new Set([
   'Internal Binding util',
   'Internal Binding wasm_web_api',
   'Internal Binding worker',
-  'NativeModule async_hooks',
   'NativeModule buffer',
   'NativeModule events',
   'NativeModule fs',
@@ -51,32 +48,20 @@ const expectedModules = new Set([
   'NativeModule internal/event_target',
   'NativeModule internal/fixed_queue',
   'NativeModule internal/fs/utils',
-  'NativeModule internal/idna',
   'NativeModule internal/linkedlist',
-  'NativeModule internal/modules/cjs/helpers',
   'NativeModule internal/modules/cjs/loader',
-  'NativeModule internal/modules/esm/assert',
-  'NativeModule internal/modules/esm/formats',
-  'NativeModule internal/modules/esm/get_format',
-  'NativeModule internal/modules/esm/initialize_import_meta',
-  'NativeModule internal/modules/esm/load',
-  'NativeModule internal/modules/esm/loader',
-  'NativeModule internal/modules/esm/module_map',
-  'NativeModule internal/modules/esm/package_config',
-  'NativeModule internal/modules/esm/resolve',
-  'NativeModule internal/modules/esm/translators',
+  'NativeModule internal/modules/esm/utils',
+  'NativeModule internal/modules/helpers',
   'NativeModule internal/modules/package_json_reader',
   'NativeModule internal/modules/run_main',
   'NativeModule internal/net',
   'NativeModule internal/options',
   'NativeModule internal/perf/utils',
   'NativeModule internal/priority_queue',
-  'NativeModule internal/process/esm_loader',
   'NativeModule internal/process/execution',
   'NativeModule internal/process/per_thread',
   'NativeModule internal/process/pre_execution',
   'NativeModule internal/process/promises',
-  'NativeModule internal/process/report',
   'NativeModule internal/process/signal',
   'NativeModule internal/process/task_queues',
   'NativeModule internal/process/warning',
@@ -87,32 +72,35 @@ const expectedModules = new Set([
   'NativeModule internal/util',
   'NativeModule internal/util/debuglog',
   'NativeModule internal/util/inspect',
-  'NativeModule internal/util/iterable_weak_map',
   'NativeModule internal/util/types',
-  'NativeModule internal/v8/startup_snapshot',
   'NativeModule internal/validators',
   'NativeModule internal/vm',
   'NativeModule internal/vm/module',
-  'NativeModule internal/wasm_web_api',
+  'NativeModule internal/webidl',
   'NativeModule internal/worker/js_transferable',
+  'Internal Binding blob',
+  'NativeModule async_hooks',
   'NativeModule path',
   'NativeModule querystring',
   'NativeModule timers',
-  'NativeModule url',
+  'NativeModule internal/v8/startup_snapshot',
   'NativeModule util',
-  'NativeModule vm',
 ]);
 
-if (!common.isMainThread) {
+if (common.isMainThread) {
+  [
+    'NativeModule internal/idna',
+    'NativeModule url',
+  ].forEach(expectedModules.add.bind(expectedModules));
+} else {
   [
     'Internal Binding messaging',
     'Internal Binding performance',
     'Internal Binding symbols',
     'Internal Binding worker',
-    'NativeModule diagnostics_channel',
     'NativeModule internal/abort_controller',
     'NativeModule internal/error_serdes',
-    'NativeModule internal/perf/event_loop_utilization',
+    'NativeModule internal/event_target',
     'NativeModule internal/process/worker_thread_only',
     'NativeModule internal/streams/add-abort-signal',
     'NativeModule internal/streams/buffer_list',
@@ -132,17 +120,21 @@ if (!common.isMainThread) {
     'NativeModule internal/streams/writable',
     'NativeModule internal/worker',
     'NativeModule internal/worker/io',
+    'NativeModule worker_threads',
     'NativeModule stream',
     'NativeModule stream/promises',
     'NativeModule string_decoder',
-    'NativeModule worker_threads',
+    'NativeModule util',
   ].forEach(expectedModules.add.bind(expectedModules));
+}
+
+if (common.isWindows) {
+  // On Windows fs needs SideEffectFreeRegExpPrototypeExec which uses vm.
+  expectedModules.add('NativeModule vm');
 }
 
 if (common.hasIntl) {
   expectedModules.add('Internal Binding icu');
-} else {
-  expectedModules.add('NativeModule url');
 }
 
 if (process.features.inspector) {

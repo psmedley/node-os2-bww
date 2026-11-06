@@ -63,16 +63,25 @@
         'is_component_build': 0,
       }],
       ['OS == "win" or OS == "mac"', {
-        # Sets -DENABLE_SYSTEM_INSTRUMENTATION. Enables OS-dependent event tracing
+        # Sets -DSYSTEM_INSTRUMENTATION. Enables OS-dependent event tracing
         'v8_enable_system_instrumentation': 1,
       }, {
         'v8_enable_system_instrumentation': 0,
       }],
-      ['OS == "win"', {
-        'v8_enable_etw_stack_walking': 1,
+      ['OS=="linux"', {
+        # Sets -dV8_ENABLE_PRIVATE_MAPPING_FORK_OPTIMIZATION.
+        #
+        # This flag speeds up the performance of fork/execve on Linux systems for
+        # embedders which use it (like Node.js). It works by marking the pages that
+        # V8 allocates as MADV_DONTFORK. Without MADV_DONTFORK, the Linux kernel
+        # spends a long time manipulating page mappings on fork and exec which the
+        # child process doesn't generally need to access.
+        #
+        # See v8:7381 for more details.
+        'v8_enable_private_mapping_fork_optimization': 1,
       }, {
-        'v8_enable_etw_stack_walking': 0,
-      }]
+        'v8_enable_private_mapping_fork_optimization': 0,
+      }],
     ],
     'is_debug%': 0,
 
@@ -80,6 +89,11 @@
 
     # Set to 1 to enable DCHECKs in release builds.
     'dcheck_always_on%': 0,
+
+    # For v18.x, disable SLOW_DCHECKs because they don't compile without
+    # the patches in https://bugs.chromium.org/p/v8/issues/detail?id=12887
+    # if used in constexpr, which can happen in other floated patches.
+    'v8_enable_slow_dchecks%': 0,
 
     # Sets -DV8_ENABLE_FUTURE.
     'v8_enable_future%': 0,
@@ -227,8 +241,16 @@
     'v8_enable_zone_compression%': 0,
 
     # Enable the experimental V8 sandbox.
-    # Sets -DV8_ENABLE_SANDBOX.
+    # Sets -DV8_SANDBOX.
     'v8_enable_sandbox%': 0,
+
+    # Enable external pointer sandboxing. Requires v8_enable_sandbox.
+    # Sets -DV8_SANDBOXED_EXTERNAL_POINRTERS.
+    'v8_enable_sandboxed_external_pointers%': 0,
+
+    # Enable sandboxed pointers. Requires v8_enable_sandbox.
+    # Sets -DV8_SANDBOXED_POINTERS.
+    'v8_enable_sandboxed_pointers%': 0,
 
     # Experimental feature for collecting per-class zone memory stats.
     # Requires use_rtti = true
@@ -262,10 +284,6 @@
     # Change code emission and runtime features to be CET shadow-stack compliant
     # (incomplete and experimental).
     'v8_enable_cet_shadow_stack%': 0,
-
-    # Compile V8 using zlib as dependency.
-    # Sets -DV8_USE_ZLIB
-    'v8_use_zlib%': 1,
 
     # Variables from v8.gni
 
@@ -311,6 +329,9 @@
       ['v8_enable_hugepage==1', {
         'defines': ['ENABLE_HUGEPAGE',],
       }],
+      ['v8_enable_private_mapping_fork_optimization==1', {
+        'defines': ['V8_ENABLE_PRIVATE_MAPPING_FORK_OPTIMIZATION'],
+      }],
       ['v8_enable_vtunejit==1', {
         'defines': ['ENABLE_VTUNE_JIT_INTERFACE',],
       }],
@@ -330,7 +351,13 @@
         'defines': ['V8_COMPRESS_ZONES',],
       }],
       ['v8_enable_sandbox==1', {
-        'defines': ['V8_ENABLE_SANDBOX',],
+        'defines': ['V8_SANDBOX',],
+      }],
+      ['v8_enable_sandboxed_pointers==1', {
+        'defines': ['V8_SANDBOXED_POINTERS',],
+      }],
+      ['v8_enable_sandboxed_external_pointers==1', {
+        'defines': ['V8_SANDBOXED_EXTERNAL_POINTERS',],
       }],
       ['v8_enable_object_print==1', {
         'defines': ['OBJECT_PRINT',],
@@ -428,9 +455,6 @@
       ['v8_enable_cet_shadow_stack==1', {
         'defines': ['V8_ENABLE_CET_SHADOW_STACK',],
       }],
-      ['v8_use_zlib==1', {
-        'defines': ['V8_USE_ZLIB',],
-      }],
       ['v8_enable_precise_zone_stats==1', {
         'defines': ['V8_ENABLE_PRECISE_ZONE_STATS',],
       }],
@@ -442,9 +466,6 @@
       }],
       ['v8_enable_system_instrumentation==1', {
         'defines': ['V8_ENABLE_SYSTEM_INSTRUMENTATION',],
-      }],
-      ['v8_enable_etw_stack_walking==1', {
-        'defines': ['V8_ENABLE_ETW_STACK_WALKING',],
       }],
       ['v8_enable_webassembly==1', {
         'defines': ['V8_ENABLE_WEBASSEMBLY',],

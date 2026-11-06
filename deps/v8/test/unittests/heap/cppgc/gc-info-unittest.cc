@@ -10,7 +10,6 @@
 #include "src/base/page-allocator.h"
 #include "src/base/platform/platform.h"
 #include "src/heap/cppgc/gc-info-table.h"
-#include "src/heap/cppgc/platform.h"
 #include "test/unittests/heap/cppgc/tests.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -23,8 +22,7 @@ constexpr GCInfo GetEmptyGCInfo() { return {nullptr, nullptr, nullptr, false}; }
 
 class GCInfoTableTest : public ::testing::Test {
  public:
-  GCInfoTableTest()
-      : table_(std::make_unique<GCInfoTable>(page_allocator_, oom_handler_)) {}
+  GCInfoTableTest() : table_(std::make_unique<GCInfoTable>(&page_allocator_)) {}
 
   GCInfoIndex RegisterNewGCInfoForTesting(const GCInfo& info) {
     // Unused registered index will result in registering a new index.
@@ -37,7 +35,6 @@ class GCInfoTableTest : public ::testing::Test {
 
  private:
   v8::base::PageAllocator page_allocator_;
-  FatalOutOfMemoryHandler oom_handler_;
   std::unique_ptr<GCInfoTable> table_;
 };
 

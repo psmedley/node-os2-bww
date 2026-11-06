@@ -60,7 +60,7 @@ struct MainThreadConnection {
 };
 
 template <typename ConnectionType>
-class JSBindingsConnection : public AsyncWrap {
+class JSBindingsConnection : public BaseObject {
  public:
   class JSBindingsSessionDelegate : public InspectorSessionDelegate {
    public:
@@ -90,15 +90,16 @@ class JSBindingsConnection : public AsyncWrap {
   JSBindingsConnection(Environment* env,
                        Local<Object> wrap,
                        Local<Function> callback)
-                       : AsyncWrap(env, wrap, PROVIDER_INSPECTORJSBINDING),
-                         callback_(env->isolate(), callback) {
+      : BaseObject(env, wrap), callback_(env->isolate(), callback) {
     Agent* inspector = env->inspector_agent();
     session_ = ConnectionType::Connect(
         inspector, std::make_unique<JSBindingsSessionDelegate>(env, this));
   }
 
   void OnMessage(Local<Value> value) {
-    MakeCallback(callback_.Get(env()->isolate()), 1, &value);
+    auto result = callback_.Get(env()->isolate())
+                      ->Call(env()->context(), object(), 1, &value);
+    (void)result;
   }
 
   static void Bind(Environment* env, Local<Object> target) {
@@ -107,7 +108,6 @@ class JSBindingsConnection : public AsyncWrap {
         NewFunctionTemplate(isolate, JSBindingsConnection::New);
     tmpl->InstanceTemplate()->SetInternalFieldCount(
         JSBindingsConnection::kInternalFieldCount);
-    tmpl->Inherit(AsyncWrap::GetConstructorTemplate(env));
     SetProtoMethod(isolate, tmpl, "dispatch", JSBindingsConnection::Dispatch);
     SetProtoMethod(
         isolate, tmpl, "disconnect", JSBindingsConnection::Disconnect);
@@ -122,9 +122,11 @@ class JSBindingsConnection : public AsyncWrap {
     new JSBindingsConnection(env, info.This(), callback);
   }
 
+  // See https://github.com/nodejs/node/pull/46942
   void Disconnect() {
+    BaseObjectPtr<JSBindingsConnection> strong_ref{this};
     session_.reset();
-    delete this;
+    Detach();
   }
 
   static void Disconnect(const FunctionCallbackInfo<Value>& info) {
@@ -272,7 +274,7 @@ static void RegisterAsyncHookWrapper(const FunctionCallbackInfo<Value>& args) {
 
 void IsEnabled(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
-  args.GetReturnValue().Set(InspectorEnabled(env));
+  args.GetReturnValue().Set(env->inspector_agent()->IsListening());
 }
 
 void Open(const FunctionCallbackInfo<Value>& args) {

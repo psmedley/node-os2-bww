@@ -66,7 +66,7 @@ WasmInspectorTest.getWasmValue = async function(value) {
 };
 
 function printIfFailure(message) {
-  if (!message.result || message.result.exceptionDetails) {
+  if (!message.result) {
     InspectorTest.logMessage(message);
   }
   return message;
@@ -154,16 +154,7 @@ async function dumpTables(tablesObj) {
     let functions = [];
     for (let entry of entries.result.result) {
       if (entry.name === 'length') continue;
-      let description = entry.value.description;
-      // For tables containing references, explore one level into the ref.
-      if (entry.value.objectId != null) {
-        let referencedObj = await Protocol.Runtime.getProperties(
-          {objectId: entry.value.objectId});
-        let value = referencedObj.result.result
-            .filter(prop => prop.name == "value")[0].value.description;
-        description = `${value} (${description})`;
-      }
-      functions.push(`${entry.name}: ${description}`);
+      functions.push(`${entry.name}: ${entry.value.description}`);
     }
     const functions_str = functions.join(', ');
     tables_str.push(`      ${table.name}: ${functions_str}`);

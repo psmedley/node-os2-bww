@@ -9,6 +9,7 @@
 
 #include "include/v8-inspector.h"
 #include "include/v8-local-handle.h"
+#include "src/base/macros.h"
 
 namespace v8 {
 

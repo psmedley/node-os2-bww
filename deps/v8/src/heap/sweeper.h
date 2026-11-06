@@ -8,12 +8,9 @@
 #include <map>
 #include <vector>
 
-#include "src/base/optional.h"
 #include "src/base/platform/condition-variable.h"
 #include "src/base/platform/semaphore.h"
 #include "src/common/globals.h"
-#include "src/flags/flags.h"
-#include "src/heap/pretenuring-handler.h"
 #include "src/heap/slot-set.h"
 #include "src/tasks/cancelable-task.h"
 
@@ -21,15 +18,16 @@ namespace v8 {
 namespace internal {
 
 class InvalidatedSlotsCleanup;
-class NonAtomicMarkingState;
+class MajorNonAtomicMarkingState;
 class Page;
-class PagedSpaceBase;
+class PagedSpace;
 class Space;
 
-enum class FreeSpaceTreatmentMode { kIgnoreFreeSpace, kZapFreeSpace };
+enum FreeSpaceTreatmentMode { IGNORE_FREE_SPACE, ZAP_FREE_SPACE };
 
 class Sweeper {
  public:
+  using IterabilityList = std::vector<Page*>;
   using SweepingList = std::vector<Page*>;
   using SweptList = std::vector<Page*>;
 
@@ -77,90 +75,87 @@ class Sweeper {
   enum AddPageMode { REGULAR, READD_TEMPORARY_REMOVED_PAGE };
   enum class SweepingMode { kEagerDuringGC, kLazyOrConcurrent };
 
-  Sweeper(Heap* heap);
-  ~Sweeper();
+  Sweeper(Heap* heap, MajorNonAtomicMarkingState* marking_state);
 
   bool sweeping_in_progress() const { return sweeping_in_progress_; }
 
   void TearDown();
 
   void AddPage(AllocationSpace space, Page* page, AddPageMode mode);
-  void AddNewSpacePage(Page* page);
 
   int ParallelSweepSpace(AllocationSpace identity, SweepingMode sweeping_mode,
                          int required_freed_bytes, int max_pages = 0);
-  int ParallelSweepPage(
-      Page* page, AllocationSpace identity,
-      PretenturingHandler::PretenuringFeedbackMap* local_pretenuring_feedback,
-      SweepingMode sweeping_mode);
+  int ParallelSweepPage(Page* page, AllocationSpace identity,
+                        SweepingMode sweeping_mode);
 
   void EnsurePageIsSwept(Page* page);
 
-  int RawSweep(
-      Page* p, FreeSpaceTreatmentMode free_space_treatment_mode,
-      SweepingMode sweeping_mode, const base::MutexGuard& page_guard,
-      PretenturingHandler::PretenuringFeedbackMap* local_pretenuring_feedback);
+  void ScheduleIncrementalSweepingTask();
+
+  int RawSweep(Page* p, FreeListRebuildingMode free_list_mode,
+               FreeSpaceTreatmentMode free_space_mode,
+               SweepingMode sweeping_mode, const base::MutexGuard& page_guard);
 
   // After calling this function sweeping is considered to be in progress
   // and the main thread can sweep lazily, but the background sweeper tasks
   // are not running yet.
-  void StartSweeping(GarbageCollector collector);
+  void StartSweeping();
   V8_EXPORT_PRIVATE void StartSweeperTasks();
-  void EnsureCompleted(
-      SweepingMode sweeping_mode = SweepingMode::kLazyOrConcurrent);
+  void EnsureCompleted();
   void DrainSweepingWorklistForSpace(AllocationSpace space);
   bool AreSweeperTasksRunning();
 
-  Page* GetSweptPageSafe(PagedSpaceBase* space);
+  // Support concurrent sweepers from main thread
+  void SupportConcurrentSweeping();
+
+  Page* GetSweptPageSafe(PagedSpace* space);
+
+  void AddPageForIterability(Page* page);
+  void StartIterabilityTasks();
+  void EnsureIterabilityCompleted();
 
  private:
-  NonAtomicMarkingState* marking_state() const { return marking_state_; }
-
-  void AddPageImpl(AllocationSpace space, Page* page, AddPageMode mode);
-
-  class ConcurrentSweeper;
+  class IncrementalSweeperTask;
+  class IterabilityTask;
   class SweeperJob;
 
   static const int kNumberOfSweepingSpaces =
-      LAST_SWEEPABLE_SPACE - FIRST_SWEEPABLE_SPACE + 1;
-  static constexpr int kMaxSweeperTasks = 3;
+      LAST_GROWABLE_PAGED_SPACE - FIRST_GROWABLE_PAGED_SPACE + 1;
+  static const int kMaxSweeperTasks = 3;
 
   template <typename Callback>
   void ForAllSweepingSpaces(Callback callback) const {
-    if (v8_flags.minor_mc) {
-      callback(NEW_SPACE);
-    }
     callback(OLD_SPACE);
     callback(CODE_SPACE);
     callback(MAP_SPACE);
-    callback(SHARED_SPACE);
   }
 
   // Helper function for RawSweep. Depending on the FreeListRebuildingMode and
   // FreeSpaceTreatmentMode this function may add the free memory to a free
   // list, make the memory iterable, clear it, and return the free memory to
   // the operating system.
-  size_t FreeAndProcessFreedMemory(
-      Address free_start, Address free_end, Page* page, Space* space,
-      FreeSpaceTreatmentMode free_space_treatment_mode);
+  size_t FreeAndProcessFreedMemory(Address free_start, Address free_end,
+                                   Page* page, Space* space,
+                                   FreeListRebuildingMode free_list_mode,
+                                   FreeSpaceTreatmentMode free_space_mode);
 
   // Helper function for RawSweep. Handle remembered set entries in the freed
   // memory which require clearing.
   void CleanupRememberedSetEntriesForFreedMemory(
       Address free_start, Address free_end, Page* page, bool record_free_ranges,
       TypedSlotSet::FreeRangesMap* free_ranges_map, SweepingMode sweeping_mode,
-      InvalidatedSlotsCleanup* invalidated_old_to_new_cleanup,
-      InvalidatedSlotsCleanup* invalidated_old_to_shared_cleanup);
+      InvalidatedSlotsCleanup* old_to_new_cleanup);
 
   // Helper function for RawSweep. Clears invalid typed slots in the given free
   // ranges.
-  void CleanupTypedSlotsInFreeMemory(
+  void CleanupInvalidTypedSlotsOfFreeRanges(
       Page* page, const TypedSlotSet::FreeRangesMap& free_ranges_map,
       SweepingMode sweeping_mode);
 
   // Helper function for RawSweep. Clears the mark bits and ensures consistency
   // of live bytes.
-  void ClearMarkBitsAndHandleLivenessStatistics(Page* page, size_t live_bytes);
+  void ClearMarkBitsAndHandleLivenessStatistics(
+      Page* page, size_t live_bytes, FreeListRebuildingMode free_list_mode);
 
   // Can only be called on the main thread when no tasks are running.
   bool IsDoneSweeping() const {
@@ -173,37 +168,54 @@ class Sweeper {
 
   size_t ConcurrentSweepingPageCount();
 
+  // Concurrently sweeps many page from the given space. Returns true if there
+  // are no more pages to sweep in the given space.
+  bool ConcurrentSweepSpace(AllocationSpace identity, JobDelegate* delegate);
+
+  // Sweeps incrementally one page from the given space. Returns true if
+  // there are no more pages to sweep in the given space.
+  bool IncrementalSweepSpace(AllocationSpace identity);
+
   Page* GetSweepingPageSafe(AllocationSpace space);
   bool TryRemoveSweepingPageSafe(AllocationSpace space, Page* page);
 
   void PrepareToBeSweptPage(AllocationSpace space, Page* page);
 
+  void MakeIterable(Page* page);
+
+  bool IsValidIterabilitySpace(AllocationSpace space) {
+    return space == NEW_SPACE || space == RO_SPACE;
+  }
+
   static bool IsValidSweepingSpace(AllocationSpace space) {
-    return space >= FIRST_SWEEPABLE_SPACE && space <= LAST_SWEEPABLE_SPACE;
+    return space >= FIRST_GROWABLE_PAGED_SPACE &&
+           space <= LAST_GROWABLE_PAGED_SPACE;
   }
 
   static int GetSweepSpaceIndex(AllocationSpace space) {
     DCHECK(IsValidSweepingSpace(space));
-    return space - FIRST_SWEEPABLE_SPACE;
+    return space - FIRST_GROWABLE_PAGED_SPACE;
   }
 
-  int NumberOfConcurrentSweepers() const;
-
   Heap* const heap_;
-  NonAtomicMarkingState* const marking_state_;
+  MajorNonAtomicMarkingState* marking_state_;
   std::unique_ptr<JobHandle> job_handle_;
   base::Mutex mutex_;
   base::ConditionVariable cv_page_swept_;
   SweptList swept_list_[kNumberOfSweepingSpaces];
   SweepingList sweeping_list_[kNumberOfSweepingSpaces];
-  std::vector<ConcurrentSweeper> concurrent_sweepers_;
+  bool incremental_sweeper_pending_;
   // Main thread can finalize sweeping, while background threads allocation slow
   // path checks this flag to see whether it could support concurrent sweeping.
   std::atomic<bool> sweeping_in_progress_;
+
+  // Pages that are only made iterable but have their free lists ignored.
+  IterabilityList iterability_list_;
+  CancelableTaskManager::Id iterability_task_id_;
+  base::Semaphore iterability_task_semaphore_;
+  bool iterability_in_progress_;
+  bool iterability_task_started_;
   bool should_reduce_memory_;
-  PretenturingHandler* const pretenuring_handler_;
-  PretenturingHandler::PretenuringFeedbackMap local_pretenuring_feedback_;
-  base::Optional<GarbageCollector> current_collector_;
 };
 
 }  // namespace internal

@@ -1,16 +1,17 @@
 const t = require('tap')
-const fs = require('fs')
-const path = require('path')
+const fs = require('node:fs/promises')
+const path = require('node:path')
 
 const { load: loadMockNpm } = require('../../fixtures/mock-npm')
 const tnock = require('../../fixtures/tnock.js')
-const mockGlobals = require('../../fixtures/mock-globals')
+const mockGlobals = require('@npmcli/mock-globals')
 const { cleanCwd, cleanDate } = require('../../fixtures/clean-snapshot.js')
 
 const cleanCacheSha = (str) =>
   str.replace(/content-v2\/sha512\/[^"]+/g, 'content-v2/sha512/{sha}')
 
 t.cleanSnapshot = p => cleanCacheSha(cleanDate(cleanCwd(p)))
+  .replace(/^\s+(doctor\s+at\s).*$\n/gm, '')
 
 const npmManifest = (version) => {
   return {
@@ -46,10 +47,7 @@ const dirs = {
   },
   globalPrefixDir: {
     bin: {},
-    lib: {
-      node_modules: {
-      },
-    },
+    node_modules: {},
   },
 }
 
@@ -57,26 +55,25 @@ const globals = ({ globalPrefix }) => {
   return {
     process: {
       'env.PATH': `${globalPrefix}:${path.join(globalPrefix, 'bin')}`,
-      platform: 'test-not-windows',
       version: 'v1.0.0',
     },
   }
 }
 
-// getuid and getgid do not exist in windows, so we shim them
-// to return 0, as that is the value that lstat will assign the
-// gid and uid properties for fs.Stats objects
-if (process.platform === 'win32') {
-  mockGlobals(t, {
-    process: {
-      getuid: () => 0,
-      getgid: () => 0,
-    },
-  })
-}
+mockGlobals(t, {
+  process: {
+    // set platform to not-windows before any tests because mockNpm
+    // sets the platform specific location of node_modules based on it
+    platform: 'test-not-windows',
+    // getuid and getgid do not exist in windows, so we shim them
+    // to return 0, as that is the value that lstat will assign the
+    // gid and uid properties for fs.Stats objects
+    ...(process.platform === 'win32' ? { getuid: () => 0, getgid: () => 0 } : {}),
+  },
+})
 
 const mocks = {
-  '../../package.json': { version: '1.0.0' },
+  '{ROOT}/package.json': { version: '1.0.0' },
   which: async () => '/path/to/git',
   cacache: {
     verify: () => {
@@ -106,13 +103,15 @@ t.test('all clear in color', async t => {
     mocks,
     globals,
     ...dirs,
+    config: {
+      color: 'always',
+    },
   })
   tnock(t, npm.config.get('registry'))
     .get('/-/ping?write=true').reply(200, '{}')
     .get('/npm').reply(200, npmManifest(npm.version))
   tnock(t, 'https://nodejs.org')
     .get('/dist/index.json').reply(200, nodeVersions)
-  npm.config.set('color', 'always')
   await npm.exec('doctor', [])
   t.matchSnapshot(joinedOutput(), 'everything is ok in color')
   t.matchSnapshot({ info: logs.info, warn: logs.warn, error: logs.error }, 'logs')
@@ -178,13 +177,15 @@ t.test('ping 404 in color', async t => {
     mocks,
     globals,
     ...dirs,
+    config: {
+      color: 'always',
+    },
   })
   tnock(t, npm.config.get('registry'))
     .get('/-/ping?write=true').reply(404, '{}')
     .get('/npm').reply(200, npmManifest(npm.version))
   tnock(t, 'https://nodejs.org')
     .get('/dist/index.json').reply(200, nodeVersions)
-  npm.config.set('color', 'always')
   await t.rejects(npm.exec('doctor', []))
   t.matchSnapshot(joinedOutput(), 'ping 404 in color')
   t.matchSnapshot({ info: logs.info, warn: logs.warn, error: logs.error }, 'logs')
@@ -247,7 +248,6 @@ t.test('node out of date - lts', async t => {
         ...g,
         process: {
           ...g.process,
-          platform: 'test-not-windows',
           version: 'v0.0.1',
         },
       }
@@ -358,6 +358,7 @@ t.test('missing global directories', async t => {
     mocks,
     globals,
     prefixDir: dirs.prefixDir,
+    globalPrefixDir: {},
   })
   tnock(t, npm.config.get('registry'))
     .get('/-/ping?write=true').reply(200, '{}')
@@ -389,15 +390,15 @@ t.test('incorrect owner', async t => {
   const { joinedOutput, logs, npm } = await loadMockNpm(t, {
     mocks: {
       ...mocks,
-      fs: {
+      'node:fs/promises': {
         ...fs,
-        lstat: (p, cb) => {
-          const stat = fs.lstatSync(p)
+        lstat: async (p) => {
+          const stat = await fs.lstat(p)
           if (p.endsWith('_cacache')) {
             stat.uid += 1
             stat.gid += 1
           }
-          return cb(null, stat)
+          return stat
         },
       },
     },
@@ -418,9 +419,9 @@ t.test('incorrect permissions', async t => {
   const { joinedOutput, logs, npm } = await loadMockNpm(t, {
     mocks: {
       ...mocks,
-      fs: {
+      'node:fs/promises': {
         ...fs,
-        access: () => {
+        access: async () => {
           throw new Error('Test Error')
         },
       },
@@ -442,9 +443,13 @@ t.test('error reading directory', async t => {
   const { joinedOutput, logs, npm } = await loadMockNpm(t, {
     mocks: {
       ...mocks,
-      fs: {
+      'node:fs/promises': {
         ...fs,
-        readdir: () => {
+        readdir: async (s, ...args) => {
+          if (s.endsWith('_logs')) {
+            return fs.readdir(s, ...args)
+          }
+          // if (s.endsWith)
           throw new Error('Test Error')
         },
       },

@@ -3,6 +3,8 @@
 # found in the LICENSE file.
 
 from . import base
+from ..local.variants import ALL_VARIANTS, ALL_VARIANT_FLAGS
+from .result import GroupedResult
 
 
 STANDARD_VARIANT = set(["default"])
@@ -23,10 +25,16 @@ class VariantProc(base.TestProcProducer):
 
   def __init__(self, variants):
     super(VariantProc, self).__init__('VariantProc')
-    self._requirement = base.DROP_RESULT
     self._next_variant = {}
     self._variant_gens = {}
     self._variants = variants
+
+  def setup(self, requirement=base.DROP_RESULT):
+    super(VariantProc, self).setup(requirement)
+
+    # VariantProc is optimized for dropping the result and it should be placed
+    # in the chain where it's possible.
+    assert requirement == base.DROP_RESULT
 
   def _next_test(self, test):
     gen = self._variants_gen(test)

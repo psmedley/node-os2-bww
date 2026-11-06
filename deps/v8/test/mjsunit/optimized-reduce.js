@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 // Flags: --allow-natives-syntax --expose-gc --turbo-inline-array-builtins
-// Flags: --turbofan --no-always-turbofan
+// Flags: --opt --no-always-opt
 
 // Unknown field access leads to eager-deopt unrelated to reduce, should still
 // lead to correct result.

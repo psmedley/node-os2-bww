@@ -8,6 +8,7 @@
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/operation-typer.h"
 #include "src/compiler/simplified-operator.h"
+#include "src/compiler/type-cache.h"
 #include "src/execution/frame-constants.h"
 
 namespace v8 {
@@ -15,9 +16,9 @@ namespace internal {
 namespace compiler {
 
 #ifdef DEBUG
-#define TRACE(...)                                        \
-  do {                                                    \
-    if (v8_flags.trace_turbo_escape) PrintF(__VA_ARGS__); \
+#define TRACE(...)                                    \
+  do {                                                \
+    if (FLAG_trace_turbo_escape) PrintF(__VA_ARGS__); \
   } while (false)
 #else
 #define TRACE(...)

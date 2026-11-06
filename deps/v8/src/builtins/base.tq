@@ -12,13 +12,11 @@
 #include 'src/objects/call-site-info.h'
 #include 'src/objects/elements-kind.h'
 #include 'src/objects/free-space.h'
-#include 'src/objects/js-atomics-synchronization.h'
 #include 'src/objects/js-function.h'
 #include 'src/objects/js-generator.h'
 #include 'src/objects/js-promise.h'
 #include 'src/objects/js-regexp-string-iterator.h'
-#include 'src/objects/js-shadow-realm.h'
-#include 'src/objects/js-shared-array.h'
+#include 'src/objects/js-shadow-realms.h'
 #include 'src/objects/js-struct.h'
 #include 'src/objects/js-weak-refs.h'
 #include 'src/objects/objects.h'
@@ -358,15 +356,20 @@ constexpr 'CodeStubAssembler::ExtractFixedArrayFlag' {
   ...
 }
 
+extern enum InitializationMode
+constexpr 'CodeStubAssembler::InitializationMode' {
+  kUninitialized,
+  kInitializeToZero,
+  kInitializeToNull
+}
+
 const kBigIntMaxLength: constexpr intptr generates 'BigInt::kMaxLength';
 
 extern enum MessageTemplate {
   kAllPromisesRejected,
-  kInvalid,
   kInvalidArrayBufferLength,
   kInvalidArrayLength,
   kInvalidIndex,
-  kInvalidTypedArrayIndex,
   kNotConstructor,
   kNotGeneric,
   kCalledNonCallable,
@@ -375,7 +378,7 @@ extern enum MessageTemplate {
   kProtoObjectOrNull,
   kInvalidOffset,
   kInvalidTypedArrayLength,
-  kFirstArgumentIteratorSymbolNonCallable,
+  kIteratorSymbolNonCallable,
   kIteratorValueNotAnObject,
   kNotIterable,
   kReduceNoInitial,
@@ -386,10 +389,8 @@ extern enum MessageTemplate {
   kInvalidCountValue,
   kConstructorNotFunction,
   kSymbolToString,
-  kSymbolIteratorInvalid,
   kPropertyNotFunction,
   kBigIntTooBig,
-  kBigIntDivZero,
   kNotTypedArray,
   kDetachedOperation,
   kBadSortComparisonFunction,
@@ -429,15 +430,13 @@ extern enum MessageTemplate {
   kWasmTrapFloatUnrepresentable,
   kWasmTrapFuncSigMismatch,
   kWasmTrapDataSegmentOutOfBounds,
-  kWasmTrapElementSegmentOutOfBounds,
+  kWasmTrapElemSegmentDropped,
   kWasmTrapTableOutOfBounds,
   kWasmTrapRethrowNull,
   kWasmTrapNullDereference,
   kWasmTrapIllegalCast,
   kWasmTrapArrayOutOfBounds,
   kWasmTrapArrayTooLarge,
-  kWasmTrapStringOffsetOutOfBounds,
-  kWasmObjectsAreOpaque,
   kWeakRefsRegisterTargetAndHoldingsMustNotBeSame,
   kInvalidWeakRefsRegisterTarget,
   kInvalidWeakRefsUnregisterToken,
@@ -482,8 +481,6 @@ const kObjectAlignmentMask: constexpr intptr
     generates 'kObjectAlignmentMask';
 const kMinAddedElementsCapacity:
     constexpr int31 generates 'JSObject::kMinAddedElementsCapacity';
-const kMaxFastArrayLength:
-    constexpr int31 generates 'JSArray::kMaxFastArrayLength';
 const kMaxCopyElements:
     constexpr int31 generates 'JSArray::kMaxCopyElements';
 const kMaxRegularHeapObjectSize: constexpr int31
@@ -653,8 +650,6 @@ transitioning macro ToInteger_Inline(implicit context: Context)(input: JSAny):
   }
 }
 
-extern macro ToBigInt(Context, JSAny): BigInt;
-
 extern enum BigIntHandling extends int32
 constexpr 'CodeStubAssembler::BigIntHandling' { kConvertToNumber, kThrow }
 
@@ -694,8 +689,6 @@ extern macro ThrowRangeError(implicit context: Context)(
     constexpr MessageTemplate): never;
 extern macro ThrowRangeError(implicit context: Context)(
     constexpr MessageTemplate, Object): never;
-extern macro ThrowRangeError(implicit context: Context)(
-    constexpr MessageTemplate, Object, Object): never;
 extern macro ThrowTypeError(implicit context: Context)(
     constexpr MessageTemplate): never;
 extern macro ThrowTypeError(implicit context: Context)(
@@ -715,8 +708,6 @@ extern transitioning runtime ThrowCalledNonCallable(implicit context: Context)(
 
 extern transitioning macro ThrowIfNotJSReceiver(implicit context: Context)(
     JSAny, constexpr MessageTemplate, constexpr string): void;
-
-extern macro TerminateExecution(implicit context: Context)(): never;
 
 extern macro ArraySpeciesCreate(Context, JSAny, Number): JSReceiver;
 extern macro ArrayCreate(implicit context: Context)(Number): JSArray;
@@ -843,10 +834,7 @@ extern macro IsElementsKindInRange(
     ElementsKind, constexpr ElementsKind, constexpr ElementsKind): bool;
 
 extern macro IsFastElementsKind(constexpr ElementsKind): constexpr bool;
-extern macro IsFastPackedElementsKind(constexpr ElementsKind): constexpr bool;
 extern macro IsDoubleElementsKind(constexpr ElementsKind): constexpr bool;
-
-extern macro GetNonRabGsabElementsKind(ElementsKind): ElementsKind;
 
 extern macro IsFastAliasedArgumentsMap(implicit context: Context)(Map): bool;
 extern macro IsSlowAliasedArgumentsMap(implicit context: Context)(Map): bool;
@@ -1322,7 +1310,6 @@ extern macro BasicLoadNumberDictionaryElement(NumberDictionary, intptr): JSAny
     labels NotData, IfHole;
 
 extern macro IsFastElementsKind(ElementsKind): bool;
-extern macro IsFastPackedElementsKind(ElementsKind): bool;
 extern macro IsDoubleElementsKind(ElementsKind): bool;
 extern macro IsFastSmiOrTaggedElementsKind(ElementsKind): bool;
 extern macro IsFastSmiElementsKind(ElementsKind): bool;
@@ -1660,65 +1647,44 @@ extern macro IsOneByteStringInstanceType(InstanceType): bool;
 // After converting an index to an integer, calculate a relative index:
 // return index < 0 ? max(length + index, 0) : min(index, length)
 @export
-transitioning macro ConvertAndClampRelativeIndex(implicit context: Context)(
+transitioning macro ConvertToRelativeIndex(implicit context: Context)(
     index: JSAny, length: uintptr): uintptr {
   const indexNumber: Number = ToInteger_Inline(index);
-  return ConvertAndClampRelativeIndex(indexNumber, length);
+  return ConvertToRelativeIndex(indexNumber, length);
 }
 
 // Calculate a relative index:
 // return index < 0 ? max(length + index, 0) : min(index, length)
 @export
-macro ConvertAndClampRelativeIndex(indexNumber: Number, length: uintptr):
-    uintptr {
-  try {
-    return ConvertRelativeIndex(indexNumber, length) otherwise OutOfBoundsLow,
-           OutOfBoundsHigh;
-  } label OutOfBoundsLow {
-    return 0;
-  } label OutOfBoundsHigh {
-    return length;
-  }
-}
-
-// Calculate a relative index with explicit out-of-bounds labels.
-macro ConvertRelativeIndex(indexNumber: Number, length: uintptr):
-    uintptr labels OutOfBoundsLow, OutOfBoundsHigh {
+macro ConvertToRelativeIndex(indexNumber: Number, length: uintptr): uintptr {
   typeswitch (indexNumber) {
     case (indexSmi: Smi): {
       const indexIntPtr: intptr = Convert<intptr>(indexSmi);
       // The logic is implemented using unsigned types.
       if (indexIntPtr < 0) {
         const relativeIndex: uintptr = Unsigned(indexIntPtr) + length;
-        if (relativeIndex < length) return relativeIndex;
-        goto OutOfBoundsLow;
+        return relativeIndex < length ? relativeIndex : 0;
 
       } else {
         const relativeIndex: uintptr = Unsigned(indexIntPtr);
-        if (relativeIndex < length) return relativeIndex;
-        goto OutOfBoundsHigh;
+        return relativeIndex < length ? relativeIndex : length;
       }
     }
     case (indexHeapNumber: HeapNumber): {
       dcheck(IsNumberNormalized(indexHeapNumber));
       const indexDouble: float64 = Convert<float64>(indexHeapNumber);
-      // NaNs must already be handled by ConvertAndClampRelativeIndex() version
+      // NaNs must already be handled by ConvertToRelativeIndex() version
       // above accepting JSAny indices.
       dcheck(!Float64IsNaN(indexDouble));
       const lengthDouble: float64 = Convert<float64>(length);
       dcheck(lengthDouble <= kMaxSafeInteger);
       if (indexDouble < 0) {
         const relativeIndex: float64 = lengthDouble + indexDouble;
-        if (relativeIndex > 0) {
-          return ChangeFloat64ToUintPtr(relativeIndex);
-        }
-        goto OutOfBoundsLow;
+        return relativeIndex > 0 ? ChangeFloat64ToUintPtr(relativeIndex) : 0;
 
       } else {
-        if (indexDouble < lengthDouble) {
-          return ChangeFloat64ToUintPtr(indexDouble);
-        }
-        goto OutOfBoundsHigh;
+        return ChangeFloat64ToUintPtr(
+            indexDouble < lengthDouble ? indexDouble : lengthDouble);
       }
     }
   }

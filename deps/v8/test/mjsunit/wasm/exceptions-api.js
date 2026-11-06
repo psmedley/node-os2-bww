@@ -75,7 +75,6 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
   // Check prototype.
   assertSame(WebAssembly.Exception.prototype, js_exception.__proto__);
   assertTrue(js_exception instanceof WebAssembly.Exception);
-  assertFalse(js_exception instanceof Error);
 
   // Check prototype of a thrown exception.
   let builder = new WasmModuleBuilder();
@@ -97,19 +96,6 @@ load("test/mjsunit/wasm/wasm-module-builder.js");
   assertThrows(() => new WebAssembly.Exception(
       tag, [1n, 2, 3n, 4, {}]), TypeError);
   assertDoesNotThrow(() => new WebAssembly.Exception(tag, [3, 4, 5n, 6, {}]));
-})();
-
-(function TestExceptionStackTrace() {
-  print(arguments.callee.name);
-  let tag = new WebAssembly.Tag({parameters: []});
-  let exn = new WebAssembly.Exception(tag, []);
-  assertEquals(undefined, exn.stack);
-  exn = new WebAssembly.Exception(tag, [], {traceStack: false});
-  assertEquals(undefined, exn.stack);
-  exn = new WebAssembly.Exception(tag, [], {traceStack: true});
-  assertTrue(exn.stack.indexOf(arguments.callee.name) > 0);
-  assertThrows(() => new WebAssembly.Exception(tag, [], 0), TypeError,
-               /Argument 2 is not an object/);
 })();
 
 (function TestCatchJSException() {
@@ -250,5 +236,5 @@ function TestGetArgHelper(types_str, types, values) {
   assertFalse(exception.is(tag2));
 
   assertThrows(() => exception.is.apply({}, tag1), TypeError,
-      /Receiver is not a WebAssembly.Exception/);
+      /Expected a WebAssembly.Exception object/);
 })();

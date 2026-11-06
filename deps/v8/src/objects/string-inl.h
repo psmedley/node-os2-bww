@@ -45,35 +45,19 @@ class V8_NODISCARD SharedStringAccessGuardIfNeeded {
   // Slow version which gets the isolate from the String.
   explicit SharedStringAccessGuardIfNeeded(String str) {
     Isolate* isolate = GetIsolateIfNeeded(str);
-    if (isolate != nullptr) {
+    if (isolate != nullptr)
       mutex_guard.emplace(isolate->internalized_string_access());
-    }
   }
 
   static SharedStringAccessGuardIfNeeded NotNeeded() {
     return SharedStringAccessGuardIfNeeded();
   }
 
-  static bool IsNeeded(String str, LocalIsolate* local_isolate) {
-    return IsNeeded(local_isolate) && IsNeeded(str, false);
+#ifdef DEBUG
+  static bool IsNeeded(String str) {
+    return GetIsolateIfNeeded(str) != nullptr;
   }
-
-  static bool IsNeeded(String str, bool check_local_heap = true) {
-    if (check_local_heap) {
-      LocalHeap* local_heap = LocalHeap::Current();
-      if (!local_heap || local_heap->is_main_thread()) {
-        // Don't acquire the lock for the main thread.
-        return false;
-      }
-    }
-
-    if (ReadOnlyHeap::Contains(str)) {
-      // Don't acquire lock for strings in ReadOnlySpace.
-      return false;
-    }
-
-    return true;
-  }
+#endif
 
   static bool IsNeeded(LocalIsolate* local_isolate) {
     // TODO(leszeks): Remove the nullptr check for local_isolate.
@@ -91,7 +75,9 @@ class V8_NODISCARD SharedStringAccessGuardIfNeeded {
 
   // Returns the Isolate from the String if we need it for the lock.
   static Isolate* GetIsolateIfNeeded(String str) {
-    if (!IsNeeded(str)) return nullptr;
+    LocalHeap* local_heap = LocalHeap::Current();
+    // Don't acquire the lock for the main thread.
+    if (!local_heap || local_heap->is_main_thread()) return nullptr;
 
     Isolate* isolate;
     if (!GetIsolateFromHeapObject(str, &isolate)) {
@@ -151,7 +137,7 @@ StringShape::StringShape(InstanceType t) : type_(static_cast<uint32_t>(t)) {
 
 bool StringShape::IsInternalized() const {
   DCHECK(valid());
-  static_assert(kNotInternalizedTag != 0);
+  STATIC_ASSERT(kNotInternalizedTag != 0);
   return (type_ & (kIsNotStringMask | kIsNotInternalizedMask)) ==
          (kStringTag | kInternalizedTag);
 }
@@ -188,9 +174,30 @@ bool StringShape::IsUncachedExternal() const {
 
 bool StringShape::IsShared() const {
   // TODO(v8:12007): Set is_shared to true on internalized string when
-  // v8_flags.shared_string_table is removed.
+  // FLAG_shared_string_table is removed.
   return (type_ & kSharedStringMask) == kSharedStringTag ||
-         (v8_flags.shared_string_table && IsInternalized());
+         (FLAG_shared_string_table && IsInternalized());
+}
+
+bool StringShape::CanMigrateInParallel() const {
+  switch (representation_encoding_and_shared_tag()) {
+    case kSeqOneByteStringTag | kSharedStringTag:
+    case kSeqTwoByteStringTag | kSharedStringTag:
+      // Shared SeqStrings can migrate to ThinStrings.
+      return true;
+    case kThinStringTag | kOneByteStringTag | kSharedStringTag:
+    case kThinStringTag | kTwoByteStringTag | kSharedStringTag:
+      // Shared ThinStrings do not migrate.
+      return false;
+    default:
+      // TODO(v8:12007): Set is_shared to true on internalized string when
+      // FLAG_shared_string_table is removed.
+      //
+      // If you crashed here, you probably added a new shared string
+      // type. Explicitly handle all shared string cases above.
+      DCHECK((FLAG_shared_string_table && IsInternalized()) || !IsShared());
+      return false;
+  }
 }
 
 StringRepresentationTag StringShape::representation_tag() const {
@@ -210,10 +217,10 @@ uint32_t StringShape::representation_encoding_and_shared_tag() const {
   return (type_ & (kStringRepresentationEncodingAndSharedMask));
 }
 
-static_assert((kStringRepresentationAndEncodingMask) ==
+STATIC_ASSERT((kStringRepresentationAndEncodingMask) ==
               Internals::kStringRepresentationAndEncodingMask);
 
-static_assert(static_cast<uint32_t>(kStringEncodingMask) ==
+STATIC_ASSERT(static_cast<uint32_t>(kStringEncodingMask) ==
               Internals::kStringEncodingMask);
 
 bool StringShape::IsSequentialOneByte() const {
@@ -228,19 +235,19 @@ bool StringShape::IsExternalOneByte() const {
   return representation_and_encoding_tag() == kExternalOneByteStringTag;
 }
 
-static_assert(kExternalOneByteStringTag ==
+STATIC_ASSERT(kExternalOneByteStringTag ==
               Internals::kExternalOneByteRepresentationTag);
 
-static_assert(v8::String::ONE_BYTE_ENCODING == kOneByteStringTag);
+STATIC_ASSERT(v8::String::ONE_BYTE_ENCODING == kOneByteStringTag);
 
 bool StringShape::IsExternalTwoByte() const {
   return representation_and_encoding_tag() == kExternalTwoByteStringTag;
 }
 
-static_assert(kExternalTwoByteStringTag ==
+STATIC_ASSERT(kExternalTwoByteStringTag ==
               Internals::kExternalTwoByteRepresentationTag);
 
-static_assert(v8::String::TWO_BYTE_ENCODING == kTwoByteStringTag);
+STATIC_ASSERT(v8::String::TWO_BYTE_ENCODING == kTwoByteStringTag);
 
 template <typename TDispatcher, typename TResult, typename... TArgs>
 inline TResult StringShape::DispatchToSpecificTypeWithoutCast(TArgs&&... args) {
@@ -315,8 +322,8 @@ DEF_GETTER(String, IsTwoByteRepresentation, bool) {
 bool String::IsOneByteRepresentationUnderneath(String string) {
   while (true) {
     uint32_t type = string.map().instance_type();
-    static_assert(kIsIndirectStringTag != 0);
-    static_assert((kIsIndirectStringMask & kStringEncodingMask) == 0);
+    STATIC_ASSERT(kIsIndirectStringTag != 0);
+    STATIC_ASSERT((kIsIndirectStringMask & kStringEncodingMask) == 0);
     DCHECK(string.IsFlat());
     switch (type & (kIsIndirectStringMask | kStringEncodingMask)) {
       case kOneByteStringTag:
@@ -373,10 +380,6 @@ class SequentialStringKey final : public StringTableKey {
     if (sizeof(Char) == 1) {
       internalized_string_ = isolate->factory()->NewOneByteInternalizedString(
           base::Vector<const uint8_t>::cast(chars_), raw_hash_field());
-    } else if (convert_) {
-      internalized_string_ =
-          isolate->factory()->NewOneByteInternalizedStringFromTwoByte(
-              base::Vector<const uint16_t>::cast(chars_), raw_hash_field());
     } else {
       internalized_string_ = isolate->factory()->NewTwoByteInternalizedString(
           base::Vector<const uint16_t>::cast(chars_), raw_hash_field());
@@ -781,7 +784,7 @@ String::FlatContent String::GetFlatContent(
 }
 
 Handle<String> String::Share(Isolate* isolate, Handle<String> string) {
-  DCHECK(v8_flags.shared_string_table);
+  DCHECK(FLAG_shared_string_table);
   MaybeHandle<Map> new_map;
   switch (
       isolate->factory()->ComputeSharingStrategyForString(string, &new_map)) {
@@ -876,9 +879,9 @@ String String::GetUnderlying() const {
   // wrapping string is already flattened.
   DCHECK(IsFlat());
   DCHECK(StringShape(*this).IsIndirect());
-  static_assert(static_cast<int>(ConsString::kFirstOffset) ==
+  STATIC_ASSERT(static_cast<int>(ConsString::kFirstOffset) ==
                 static_cast<int>(SlicedString::kParentOffset));
-  static_assert(static_cast<int>(ConsString::kFirstOffset) ==
+  STATIC_ASSERT(static_cast<int>(ConsString::kFirstOffset) ==
                 static_cast<int>(ThinString::kActualOffset));
   const int kUnderlyingOffset = SlicedString::kParentOffset;
   return TaggedField<String, kUnderlyingOffset>::load(*this);
@@ -1100,32 +1103,23 @@ bool ExternalString::is_uncached() const {
   return (type & kUncachedExternalStringMask) == kUncachedExternalStringTag;
 }
 
-void ExternalString::InitExternalPointerFields(Isolate* isolate) {
-  InitExternalPointerField<kExternalStringResourceTag>(kResourceOffset, isolate,
-                                                       kNullAddress);
+void ExternalString::AllocateExternalPointerEntries(Isolate* isolate) {
+  InitExternalPointerField(kResourceOffset, isolate,
+                           kExternalStringResourceTag);
   if (is_uncached()) return;
-  InitExternalPointerField<kExternalStringResourceDataTag>(
-      kResourceDataOffset, isolate, kNullAddress);
-}
-
-void ExternalString::VisitExternalPointers(ObjectVisitor* visitor) const {
-  visitor->VisitExternalPointer(*this, RawExternalPointerField(kResourceOffset),
-                                kExternalStringResourceTag);
-  if (is_uncached()) return;
-  visitor->VisitExternalPointer(*this,
-                                RawExternalPointerField(kResourceDataOffset),
-                                kExternalStringResourceDataTag);
+  InitExternalPointerField(kResourceDataOffset, isolate,
+                           kExternalStringResourceDataTag);
 }
 
 DEF_GETTER(ExternalString, resource_as_address, Address) {
   Isolate* isolate = GetIsolateForSandbox(*this);
-  return ReadExternalPointerField<kExternalStringResourceTag>(kResourceOffset,
-                                                              isolate);
+  return ReadExternalPointerField(kResourceOffset, isolate,
+                                  kExternalStringResourceTag);
 }
 
 void ExternalString::set_address_as_resource(Isolate* isolate, Address value) {
-  WriteExternalPointerField<kExternalStringResourceTag>(kResourceOffset,
-                                                        isolate, value);
+  WriteExternalPointerField(kResourceOffset, isolate, value,
+                            kExternalStringResourceTag);
   if (IsExternalOneByteString()) {
     ExternalOneByteString::cast(*this).update_data_cache(isolate);
   } else {
@@ -1147,16 +1141,16 @@ void ExternalString::SetResourceRefForSerialization(uint32_t ref) {
 }
 
 void ExternalString::DisposeResource(Isolate* isolate) {
-  Address value = ReadExternalPointerField<kExternalStringResourceTag>(
-      kResourceOffset, isolate);
+  Address value = ReadExternalPointerField(kResourceOffset, isolate,
+                                           kExternalStringResourceTag);
   v8::String::ExternalStringResourceBase* resource =
       reinterpret_cast<v8::String::ExternalStringResourceBase*>(value);
 
   // Dispose of the C++ object if it has not already been disposed.
   if (resource != nullptr) {
     resource->Dispose();
-    WriteExternalPointerField<kExternalStringResourceTag>(
-        kResourceOffset, isolate, kNullAddress);
+    WriteExternalPointerField(kResourceOffset, isolate, kNullAddress,
+                              kExternalStringResourceTag);
   }
 }
 
@@ -1176,9 +1170,10 @@ void ExternalOneByteString::update_data_cache(Isolate* isolate) {
     if (resource(isolate)->IsCacheable())
       mutable_resource(isolate)->UpdateDataCache();
   } else {
-    WriteExternalPointerField<kExternalStringResourceDataTag>(
+    WriteExternalPointerField(
         kResourceDataOffset, isolate,
-        reinterpret_cast<Address>(resource(isolate)->data()));
+        reinterpret_cast<Address>(resource(isolate)->data()),
+        kExternalStringResourceDataTag);
   }
 }
 
@@ -1193,8 +1188,9 @@ void ExternalOneByteString::SetResource(
 
 void ExternalOneByteString::set_resource(
     Isolate* isolate, const ExternalOneByteString::Resource* resource) {
-  WriteExternalPointerField<kExternalStringResourceTag>(
-      kResourceOffset, isolate, reinterpret_cast<Address>(resource));
+  WriteExternalPointerField(kResourceOffset, isolate,
+                            reinterpret_cast<Address>(resource),
+                            kExternalStringResourceTag);
   if (resource != nullptr) update_data_cache(isolate);
 }
 
@@ -1246,9 +1242,10 @@ void ExternalTwoByteString::update_data_cache(Isolate* isolate) {
     if (resource(isolate)->IsCacheable())
       mutable_resource(isolate)->UpdateDataCache();
   } else {
-    WriteExternalPointerField<kExternalStringResourceDataTag>(
+    WriteExternalPointerField(
         kResourceDataOffset, isolate,
-        reinterpret_cast<Address>(resource(isolate)->data()));
+        reinterpret_cast<Address>(resource(isolate)->data()),
+        kExternalStringResourceDataTag);
   }
 }
 
@@ -1263,8 +1260,9 @@ void ExternalTwoByteString::SetResource(
 
 void ExternalTwoByteString::set_resource(
     Isolate* isolate, const ExternalTwoByteString::Resource* resource) {
-  WriteExternalPointerField<kExternalStringResourceTag>(
-      kResourceOffset, isolate, reinterpret_cast<Address>(resource));
+  WriteExternalPointerField(kResourceOffset, isolate,
+                            reinterpret_cast<Address>(resource),
+                            kExternalStringResourceTag);
   if (resource != nullptr) update_data_cache(isolate);
 }
 
@@ -1490,8 +1488,6 @@ bool String::IsInPlaceInternalizable(InstanceType instance_type) {
     case SHARED_ONE_BYTE_STRING_TYPE:
     case EXTERNAL_STRING_TYPE:
     case EXTERNAL_ONE_BYTE_STRING_TYPE:
-    case SHARED_EXTERNAL_STRING_TYPE:
-    case SHARED_EXTERNAL_ONE_BYTE_STRING_TYPE:
       return true;
     default:
       return false;

@@ -34,7 +34,7 @@ class LinearAllocationArea final {
 
   void ResetStart() { start_ = top_; }
 
-  V8_INLINE bool CanIncrementTop(size_t bytes) const {
+  V8_INLINE bool CanIncrementTop(size_t bytes) {
     Verify();
     return (top_ + bytes) <= limit_;
   }
@@ -98,18 +98,11 @@ class LinearAllocationArea final {
 #ifdef DEBUG
     SLOW_DCHECK(start_ <= top_);
     SLOW_DCHECK(top_ <= limit_);
-    if (V8_COMPRESS_POINTERS_8GB_BOOL) {
-      SLOW_DCHECK(IsAligned(top_, kObjectAlignment8GbHeap));
-    } else {
-      SLOW_DCHECK(IsAligned(top_, kObjectAlignment));
-    }
+    SLOW_DCHECK(top_ == kNullAddress || (top_ & kHeapObjectTagMask) == 0);
 #endif  // DEBUG
   }
 
-  static constexpr int kSize = 4 * kSystemPointerSize;
-
-  bool enabled() const { return enabled_; }
-  void SetEnabled(bool enabled) { enabled_ = enabled; }
+  static constexpr int kSize = 3 * kSystemPointerSize;
 
  private:
   // The start of the LAB. Initially coincides with `top_`. As top is moved
@@ -120,11 +113,9 @@ class LinearAllocationArea final {
   Address top_ = kNullAddress;
   // Limit of the LAB the denotes the end of the valid range for allocation.
   Address limit_ = kNullAddress;
-
-  bool enabled_ = true;
 };
 
-static_assert(sizeof(LinearAllocationArea) <= LinearAllocationArea::kSize,
+static_assert(sizeof(LinearAllocationArea) == LinearAllocationArea::kSize,
               "LinearAllocationArea's size must be small because it "
               "is included in IsolateData.");
 

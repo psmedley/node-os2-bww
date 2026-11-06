@@ -16,7 +16,6 @@
 #include "src/objects/descriptor-array.h"
 #include "src/objects/elements-kind.h"
 #include "src/objects/field-type.h"
-#include "src/objects/instance-type.h"
 #include "src/objects/js-objects.h"
 #include "src/objects/map-updater.h"
 #include "src/objects/maybe-object.h"
@@ -80,7 +79,7 @@ Map Map::GetInstanceTypeMap(ReadOnlyRoots roots, InstanceType type) {
 }
 
 VisitorId Map::GetVisitorId(Map map) {
-  static_assert(kVisitorIdCount <= 256);
+  STATIC_ASSERT(kVisitorIdCount <= 256);
 
   const int instance_type = map.instance_type();
 
@@ -195,11 +194,8 @@ VisitorId Map::GetVisitorId(Map map) {
     case JS_WEAK_SET_TYPE:
       return kVisitJSWeakCollection;
 
-    case ACCESSOR_INFO_TYPE:
-      return kVisitAccessorInfo;
-
     case CALL_HANDLER_INFO_TYPE:
-      return kVisitCallHandlerInfo;
+      return kVisitStruct;
 
     case JS_PROXY_TYPE:
       return kVisitStruct;
@@ -284,7 +280,6 @@ VisitorId Map::GetVisitorId(Map map) {
     case JS_SET_TYPE:
     case JS_SET_VALUE_ITERATOR_TYPE:
     case JS_SHADOW_REALM_TYPE:
-    case JS_SHARED_ARRAY_TYPE:
     case JS_SHARED_STRUCT_TYPE:
     case JS_STRING_ITERATOR_PROTOTYPE_TYPE:
     case JS_STRING_ITERATOR_TYPE:
@@ -299,13 +294,11 @@ VisitorId Map::GetVisitorId(Map map) {
     case JS_TEMPORAL_TIME_ZONE_TYPE:
     case JS_TEMPORAL_ZONED_DATE_TIME_TYPE:
     case JS_TYPED_ARRAY_PROTOTYPE_TYPE:
-    case JS_RAW_JSON_TYPE:
 #ifdef V8_INTL_SUPPORT
     case JS_V8_BREAK_ITERATOR_TYPE:
     case JS_COLLATOR_TYPE:
     case JS_DATE_TIME_FORMAT_TYPE:
     case JS_DISPLAY_NAMES_TYPE:
-    case JS_DURATION_FORMAT_TYPE:
     case JS_LIST_FORMAT_TYPE:
     case JS_LOCALE_TYPE:
     case JS_NUMBER_FORMAT_TYPE:
@@ -317,7 +310,6 @@ VisitorId Map::GetVisitorId(Map map) {
 #endif  // V8_INTL_SUPPORT
 #if V8_ENABLE_WEBASSEMBLY
     case WASM_TAG_OBJECT_TYPE:
-    case WASM_EXCEPTION_PACKAGE_TYPE:
     case WASM_GLOBAL_OBJECT_TYPE:
     case WASM_MEMORY_OBJECT_TYPE:
     case WASM_MODULE_OBJECT_TYPE:
@@ -326,7 +318,6 @@ VisitorId Map::GetVisitorId(Map map) {
 #endif  // V8_ENABLE_WEBASSEMBLY
     case JS_BOUND_FUNCTION_TYPE:
     case JS_WRAPPED_FUNCTION_TYPE: {
-      // Is GetEmbedderFieldCount(map) > 0 for Atomics.Mutex?
       const bool has_raw_data_fields =
           COMPRESS_POINTERS_BOOL && JSObject::GetEmbedderFieldCount(map) > 0;
       return has_raw_data_fields ? kVisitJSObject : kVisitJSObjectFast;
@@ -345,10 +336,6 @@ VisitorId Map::GetVisitorId(Map map) {
 
     case JS_FINALIZATION_REGISTRY_TYPE:
       return kVisitJSFinalizationRegistry;
-
-    case JS_ATOMICS_MUTEX_TYPE:
-    case JS_ATOMICS_CONDITION_TYPE:
-      return kVisitJSSynchronizationPrimitive;
 
     case FILLER_TYPE:
     case FOREIGN_TYPE:
@@ -393,16 +380,14 @@ VisitorId Map::GetVisitorId(Map map) {
       return kVisitWasmArray;
     case WASM_STRUCT_TYPE:
       return kVisitWasmStruct;
-    case WASM_CONTINUATION_OBJECT_TYPE:
-      return kVisitWasmContinuationObject;
     case WASM_TYPE_INFO_TYPE:
       return kVisitWasmTypeInfo;
     case WASM_INTERNAL_FUNCTION_TYPE:
       return kVisitWasmInternalFunction;
     case WASM_JS_FUNCTION_DATA_TYPE:
       return kVisitWasmJSFunctionData;
-    case WASM_RESUME_DATA_TYPE:
-      return kVisitWasmResumeData;
+    case WASM_ON_FULFILLED_DATA_TYPE:
+      return kVisitWasmOnFulfilledData;
     case WASM_API_FUNCTION_REF_TYPE:
       return kVisitWasmApiFunctionRef;
     case WASM_EXPORTED_FUNCTION_DATA_TYPE:
@@ -577,6 +562,11 @@ Map::FieldCounts Map::GetFieldCounts() const {
   return FieldCounts(mutable_count, const_count);
 }
 
+bool Map::HasOutOfObjectProperties() const {
+  return GetInObjectProperties() <
+         NumberOfFields(ConcurrencyMode::kSynchronous);
+}
+
 void Map::DeprecateTransitionTree(Isolate* isolate) {
   if (is_deprecated()) return;
   TransitionsAccessor transitions(isolate, *this);
@@ -587,11 +577,11 @@ void Map::DeprecateTransitionTree(Isolate* isolate) {
   DCHECK(!constructor_or_back_pointer().IsFunctionTemplateInfo());
   DCHECK(CanBeDeprecated());
   set_is_deprecated(true);
-  if (v8_flags.log_maps) {
+  if (FLAG_log_maps) {
     LOG(isolate, MapEvent("Deprecate", handle(*this, isolate), Handle<Map>()));
   }
-  DependentCode::DeoptimizeDependencyGroups(isolate, *this,
-                                            DependentCode::kTransitionGroup);
+  dependent_code().DeoptimizeDependentCodeGroup(
+      isolate, DependentCode::kTransitionGroup);
   NotifyLeafMapLayoutChange(isolate);
 }
 
@@ -703,7 +693,7 @@ MaybeHandle<Map> Map::TryUpdate(Isolate* isolate, Handle<Map> old_map) {
 
   if (!old_map->is_deprecated()) return old_map;
 
-  if (v8_flags.fast_map_update) {
+  if (FLAG_fast_map_update) {
     Map target_map = SearchMigrationTarget(isolate, *old_map);
     if (!target_map.is_null()) {
       return handle(target_map, isolate);
@@ -713,7 +703,7 @@ MaybeHandle<Map> Map::TryUpdate(Isolate* isolate, Handle<Map> old_map) {
   base::Optional<Map> new_map = MapUpdater::TryUpdateNoLock(
       isolate, *old_map, ConcurrencyMode::kSynchronous);
   if (!new_map.has_value()) return MaybeHandle<Map>();
-  if (v8_flags.fast_map_update) {
+  if (FLAG_fast_map_update) {
     TransitionsAccessor::SetMigrationTarget(isolate, old_map, new_map.value());
   }
   return handle(new_map.value(), isolate);
@@ -792,7 +782,7 @@ Map Map::TryReplayPropertyTransitions(Isolate* isolate, Map old_map,
 // static
 Handle<Map> Map::Update(Isolate* isolate, Handle<Map> map) {
   if (!map->is_deprecated()) return map;
-  if (v8_flags.fast_map_update) {
+  if (FLAG_fast_map_update) {
     Map target_map = SearchMigrationTarget(isolate, *map);
     if (!target_map.is_null()) {
       return handle(target_map, isolate);
@@ -1093,7 +1083,7 @@ int Map::NumberOfEnumerableProperties() const {
   int result = 0;
   DescriptorArray descs = instance_descriptors(kRelaxedLoad);
   for (InternalIndex i : IterateOwnDescriptors()) {
-    if ((int{descs.GetDetails(i).attributes()} & ONLY_ENUMERABLE) == 0 &&
+    if ((descs.GetDetails(i).attributes() & ONLY_ENUMERABLE) == 0 &&
         !descs.GetKey(i).FilterKey(ENUMERABLE_STRINGS)) {
       result++;
     }
@@ -1188,15 +1178,13 @@ Handle<Map> Map::RawCopy(Isolate* isolate, Handle<Map> src_handle,
 
 Handle<Map> Map::Normalize(Isolate* isolate, Handle<Map> fast_map,
                            ElementsKind new_elements_kind,
-                           PropertyNormalizationMode mode, bool use_cache,
-                           const char* reason) {
+                           PropertyNormalizationMode mode, const char* reason) {
   DCHECK(!fast_map->is_dictionary_map());
 
   Handle<Object> maybe_cache(isolate->native_context()->normalized_map_cache(),
                              isolate);
-  if (fast_map->is_prototype_map() || maybe_cache->IsUndefined(isolate)) {
-    use_cache = false;
-  }
+  bool use_cache =
+      !fast_map->is_prototype_map() && !maybe_cache->IsUndefined(isolate);
   Handle<NormalizedMapCache> cache;
   if (use_cache) cache = Handle<NormalizedMapCache>::cast(maybe_cache);
 
@@ -1204,17 +1192,17 @@ Handle<Map> Map::Normalize(Isolate* isolate, Handle<Map> fast_map,
   if (use_cache &&
       cache->Get(fast_map, new_elements_kind, mode).ToHandle(&new_map)) {
 #ifdef VERIFY_HEAP
-    if (v8_flags.verify_heap) new_map->DictionaryMapVerify(isolate);
+    if (FLAG_verify_heap) new_map->DictionaryMapVerify(isolate);
 #endif
 #ifdef ENABLE_SLOW_DCHECKS
-    if (v8_flags.enable_slow_asserts) {
+    if (FLAG_enable_slow_asserts) {
       // The cached map should match newly created normalized map bit-by-bit,
       // except for the code cache, which can contain some ICs which can be
       // applied to the shared map, dependent code and weak cell cache.
       Handle<Map> fresh = Map::CopyNormalized(isolate, fast_map, mode);
       fresh->set_elements_kind(new_elements_kind);
 
-      static_assert(Map::kPrototypeValidityCellOffset ==
+      STATIC_ASSERT(Map::kPrototypeValidityCellOffset ==
                     Map::kDependentCodeOffset + kTaggedSize);
       DCHECK_EQ(0, memcmp(reinterpret_cast<void*>(fresh->address()),
                           reinterpret_cast<void*>(new_map->address()),
@@ -1236,7 +1224,7 @@ Handle<Map> Map::Normalize(Isolate* isolate, Handle<Map> fast_map,
       offset = Map::kPrototypeValidityCellOffset + kTaggedSize;
       if (new_map->is_prototype_map()) {
         // For prototype maps, the PrototypeInfo is not copied.
-        static_assert(Map::kTransitionsOrPrototypeInfoOffset ==
+        STATIC_ASSERT(Map::kTransitionsOrPrototypeInfoOffset ==
                       Map::kPrototypeValidityCellOffset + kTaggedSize);
         offset = kTransitionsOrPrototypeInfoOffset + kTaggedSize;
         DCHECK_EQ(fresh->raw_transitions(),
@@ -1247,7 +1235,7 @@ Handle<Map> Map::Normalize(Isolate* isolate, Handle<Map> fast_map,
                           Map::kSize - offset));
     }
 #endif
-    if (v8_flags.log_maps) {
+    if (FLAG_log_maps) {
       LOG(isolate, MapEvent("NormalizeCached", fast_map, new_map, reason));
     }
   } else {
@@ -1255,8 +1243,9 @@ Handle<Map> Map::Normalize(Isolate* isolate, Handle<Map> fast_map,
     new_map->set_elements_kind(new_elements_kind);
     if (use_cache) {
       cache->Set(fast_map, new_map);
+      isolate->counters()->maps_normalized()->Increment();
     }
-    if (v8_flags.log_maps) {
+    if (FLAG_log_maps) {
       LOG(isolate, MapEvent("Normalize", fast_map, new_map, reason));
     }
   }
@@ -1287,7 +1276,7 @@ Handle<Map> Map::CopyNormalized(Isolate* isolate, Handle<Map> map,
   }
 
 #ifdef VERIFY_HEAP
-  if (v8_flags.verify_heap) result->DictionaryMapVerify(isolate);
+  if (FLAG_verify_heap) result->DictionaryMapVerify(isolate);
 #endif
 
   return result;
@@ -1434,12 +1423,12 @@ void Map::ConnectTransition(Isolate* isolate, Handle<Map> parent,
   }
   if (parent->IsDetached(isolate)) {
     DCHECK(child->IsDetached(isolate));
-    if (v8_flags.log_maps) {
+    if (FLAG_log_maps) {
       LOG(isolate, MapEvent("Transition", parent, child, "prototype", name));
     }
   } else {
     TransitionsAccessor::Insert(isolate, parent, name, child, flag);
-    if (v8_flags.log_maps) {
+    if (FLAG_log_maps) {
       LOG(isolate, MapEvent("Transition", parent, child, "", name));
     }
   }
@@ -1477,7 +1466,7 @@ Handle<Map> Map::CopyReplaceDescriptors(Isolate* isolate, Handle<Map> map,
       result->InitializeDescriptors(isolate, *descriptors);
     }
   }
-  if (v8_flags.log_maps && !is_connected) {
+  if (FLAG_log_maps && !is_connected) {
     LOG(isolate, MapEvent("ReplaceDescriptors", map, result, reason,
                           maybe_name.is_null() ? Handle<HeapObject>() : name));
   }
@@ -1608,7 +1597,7 @@ Handle<Map> Map::AsLanguageMode(Isolate* isolate, Handle<Map> initial_map,
                                shared_info->function_map_index())),
                            isolate);
 
-  static_assert(LanguageModeSize == 2);
+  STATIC_ASSERT(LanguageModeSize == 2);
   DCHECK_EQ(LanguageMode::kStrict, shared_info->language_mode());
   Handle<Symbol> transition_symbol =
       isolate->factory()->strict_function_transition_symbol();
@@ -1716,7 +1705,7 @@ Handle<Map> Map::CopyForPreventExtensions(
     ElementsKind new_kind = IsStringWrapperElementsKind(map->elements_kind())
                                 ? SLOW_STRING_WRAPPER_ELEMENTS
                                 : DICTIONARY_ELEMENTS;
-    if (v8_flags.enable_sealed_frozen_elements_kind &&
+    if (FLAG_enable_sealed_frozen_elements_kind &&
         !old_map_is_dictionary_elements_kind) {
       switch (map->elements_kind()) {
         case PACKED_ELEMENTS:
@@ -1874,7 +1863,7 @@ Handle<Map> Map::TransitionToDataProperty(Isolate* isolate, Handle<Map> map,
     const char* reason = "TooManyFastProperties";
 #if V8_TRACE_MAPS
     std::unique_ptr<base::ScopedVector<char>> buffer;
-    if (v8_flags.log_maps) {
+    if (FLAG_log_maps) {
       base::ScopedVector<char> name_buffer(100);
       name->NameShortPrint(name_buffer);
       buffer.reset(new base::ScopedVector<char>(128));
@@ -1883,7 +1872,7 @@ Handle<Map> Map::TransitionToDataProperty(Isolate* isolate, Handle<Map> map,
     }
 #endif
     Handle<Object> maybe_constructor(map->GetConstructor(), isolate);
-    if (v8_flags.feedback_normalization && map->new_target_is_base() &&
+    if (FLAG_feedback_normalization && map->new_target_is_base() &&
         maybe_constructor->IsJSFunction() &&
         !JSFunction::cast(*maybe_constructor).shared().native()) {
       Handle<JSFunction> constructor =
@@ -1897,8 +1886,8 @@ Handle<Map> Map::TransitionToDataProperty(Isolate* isolate, Handle<Map> map,
       JSFunction::SetInitialMap(isolate, constructor, result, prototype);
 
       // Deoptimize all code that embeds the previous initial map.
-      DependentCode::DeoptimizeDependencyGroups(
-          isolate, *initial_map, DependentCode::kInitialMapChangedGroup);
+      initial_map->dependent_code().DeoptimizeDependentCodeGroup(
+          isolate, DependentCode::kInitialMapChangedGroup);
       if (!result->EquivalentToForNormalization(*map,
                                                 CLEAR_INOBJECT_PROPERTIES)) {
         result =
@@ -2262,7 +2251,7 @@ Handle<Object> Map::GetOrCreatePrototypeChainValidityCell(Handle<Map> map,
   JSObject::LazyRegisterPrototypeUser(handle(prototype->map(), isolate),
                                       isolate);
 
-  Object maybe_cell = prototype->map().prototype_validity_cell(kRelaxedLoad);
+  Object maybe_cell = prototype->map().prototype_validity_cell();
   // Return existing cell if it's still valid.
   if (maybe_cell.IsCell()) {
     Handle<Cell> cell(Cell::cast(maybe_cell), isolate);
@@ -2273,14 +2262,14 @@ Handle<Object> Map::GetOrCreatePrototypeChainValidityCell(Handle<Map> map,
   // Otherwise create a new cell.
   Handle<Cell> cell = isolate->factory()->NewCell(
       handle(Smi::FromInt(Map::kPrototypeChainValid), isolate));
-  prototype->map().set_prototype_validity_cell(*cell, kRelaxedStore);
+  prototype->map().set_prototype_validity_cell(*cell);
   return cell;
 }
 
 // static
 bool Map::IsPrototypeChainInvalidated(Map map) {
   DCHECK(map.is_prototype_map());
-  Object maybe_cell = map.prototype_validity_cell(kRelaxedLoad);
+  Object maybe_cell = map.prototype_validity_cell();
   if (maybe_cell.IsCell()) {
     Cell cell = Cell::cast(maybe_cell);
     return cell.value() != Smi::FromInt(Map::kPrototypeChainValid);
@@ -2298,8 +2287,7 @@ void Map::SetPrototype(Isolate* isolate, Handle<Map> map,
     Handle<JSObject> prototype_jsobj = Handle<JSObject>::cast(prototype);
     JSObject::OptimizeAsPrototype(prototype_jsobj, enable_prototype_setup_mode);
   } else {
-    DCHECK(prototype->IsNull(isolate) || prototype->IsJSProxy() ||
-           prototype->IsWasmObject());
+    DCHECK(prototype->IsNull(isolate) || prototype->IsJSProxy());
   }
 
   WriteBarrierMode wb_mode =

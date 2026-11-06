@@ -9,13 +9,19 @@
 #include "src/builtins/accessors.h"
 #include "src/common/globals.h"
 #include "src/common/message-template.h"
+#include "src/debug/debug.h"
 #include "src/execution/arguments-inl.h"
+#include "src/execution/frames-inl.h"
 #include "src/execution/isolate-inl.h"
+#include "src/logging/counters.h"
 #include "src/logging/log.h"
+#include "src/objects/elements.h"
 #include "src/objects/hash-table-inl.h"
 #include "src/objects/literal-objects-inl.h"
 #include "src/objects/lookup-inl.h"
 #include "src/objects/smi.h"
+#include "src/objects/struct-inl.h"
+#include "src/runtime/runtime-utils.h"
 #include "src/runtime/runtime.h"
 
 namespace v8 {
@@ -118,7 +124,7 @@ namespace {
 
 template <typename Dictionary>
 Handle<Name> KeyToName(Isolate* isolate, Handle<Object> key) {
-  static_assert((std::is_same<Dictionary, SwissNameDictionary>::value ||
+  STATIC_ASSERT((std::is_same<Dictionary, SwissNameDictionary>::value ||
                  std::is_same<Dictionary, NameDictionary>::value));
   DCHECK(key->IsName());
   return Handle<Name>::cast(key);
@@ -638,7 +644,7 @@ MaybeHandle<Object> DefineClass(Isolate* isolate,
     DCHECK(isolate->has_pending_exception());
     return MaybeHandle<Object>();
   }
-  if (v8_flags.log_maps) {
+  if (FLAG_log_maps) {
     Handle<Map> empty_map;
     LOG(isolate,
         MapEvent("InitialMap", empty_map, handle(constructor->map(), isolate),

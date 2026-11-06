@@ -2208,6 +2208,9 @@ Type: Documentation-only (supports [`--pending-deprecation`][])
 
 `process.binding()` is for use by Node.js internal code only.
 
+While `process.binding()` has not reached End-of-Life status in general, it is
+unavailable when [policies][] are enabled.
+
 ### DEP0112: `dgram` private APIs
 
 <!-- YAML
@@ -2288,7 +2291,7 @@ future release.
 
 <!-- YAML
 changes:
-  - version: v19.0.0
+  - version: v18.13.0
     pr-url: https://github.com/nodejs/node/pull/44919
     description: \`url.parse()` is deprecated again in DEP0169.
   - version:
@@ -2892,7 +2895,7 @@ Prefer [`message.socket`][] over [`message.connection`][].
 
 <!-- YAML
 changes:
-  - version: v18.10.0
+  - version: v19.0.0
     pr-url: https://github.com/nodejs/node/pull/43627
     description: End-of-Life.
   - version: v16.0.0
@@ -3134,7 +3137,7 @@ resources and not the actual references.
 
 <!-- YAML
 changes:
-  - version: v18.10.0
+  - version: v19.0.0
     pr-url: https://github.com/nodejs/node/pull/42796
     description: End-of-Life.
   - version: v18.0.0
@@ -3178,12 +3181,7 @@ thing instead.
 
 <!-- YAML
 changes:
-  - version: v19.0.0
-    pr-url: https://github.com/nodejs/node/pull/44711
-    description: Runtime deprecation.
-  - version:
-    - v18.10.0
-    - v16.18.0
+  - version: v18.10.0
     pr-url: https://github.com/nodejs/node/pull/44714
     description: Documentation-only deprecation of `process.exitCode` integer
                  coercion.
@@ -3195,7 +3193,7 @@ changes:
                  coercion.
 -->
 
-Type: Runtime
+Type: Documentation-only
 
 Values other than `undefined`, `null`, integer numbers, and integer strings
 (e.g., `'1'`) are deprecated as value for the `code` parameter in
@@ -3205,9 +3203,7 @@ Values other than `undefined`, `null`, integer numbers, and integer strings
 
 <!-- YAML
 changes:
-  - version:
-    - v18.8.0
-    - v16.18.0
+  - version: v18.8.0
     pr-url: https://github.com/nodejs/node/pull/44093
     description: Documentation-only deprecation.
 -->
@@ -3220,7 +3216,7 @@ The [`--trace-atomics-wait`][] flag is deprecated.
 
 <!-- YAML
 changes:
-  - version: v18.10.0
+  - version: v19.0.0
     pr-url: https://github.com/nodejs/node/pull/44495
     description: Runtime deprecation.
   - version: v18.10.0
@@ -3240,9 +3236,7 @@ starting or ending in a slash.
 
 <!-- YAML
 changes:
-  - version:
-    - v18.10.0
-    - v16.18.0
+  - version: v18.10.0
     pr-url: https://github.com/nodejs/node/pull/44588
     description: Documentation-only deprecation.
 -->
@@ -3280,13 +3274,16 @@ Node-API callbacks.
 
 <!-- YAML
 changes:
+  - version: v18.17.0
+    pr-url: https://github.com/nodejs/node/pull/47203
+    description: Added support for `--pending-deprecation`.
   - version:
-      - v19.0.0
+      - v18.13.0
     pr-url: https://github.com/nodejs/node/pull/44919
     description: Documentation-only deprecation.
 -->
 
-Type: Documentation-only
+Type: Documentation-only (supports [`--pending-deprecation`][])
 
 [`url.parse()`][] behavior is not standardized and prone to errors that
 have security implications. Use the [WHATWG URL API][] instead. CVEs are not
@@ -3297,7 +3294,7 @@ issued for `url.parse()` vulnerabilities.
 <!-- YAML
 changes:
   - version:
-    - v19.2.0
+    - v18.13.0
     pr-url: https://github.com/nodejs/node/pull/45576
     description: Documentation-only deprecation.
 -->
@@ -3313,7 +3310,7 @@ an error in future versions of Node.js, as the [WHATWG URL API][] does already.
 <!-- YAML
 changes:
   - version:
-      - v19.3.0
+      - v18.13.0
     pr-url: https://github.com/nodejs/node/pull/45697
     description: Documentation-only deprecation.
 -->
@@ -3323,6 +3320,32 @@ Type: Documentation-only
 In a future version of Node.js, [`message.headers`][],
 [`message.headersDistinct`][], [`message.trailers`][], and
 [`message.trailersDistinct`][] will be read-only.
+
+<!-- md-lint skip-deprecation DEP0172 -->
+
+<!-- md-lint skip-deprecation DEP0173 -->
+
+<!-- md-lint skip-deprecation DEP0174 -->
+
+<!-- md-lint skip-deprecation DEP0175 -->
+
+<!-- md-lint skip-deprecation DEP0176 -->
+
+<!-- md-lint skip-deprecation DEP0177 -->
+
+### DEP0178: `dirent.path`
+
+<!-- YAML
+changes:
+  - version: v18.20.0
+    pr-url: https://github.com/nodejs/node/pull/51020
+    description: Documentation-only deprecation.
+-->
+
+Type: Documentation-only
+
+The [`dirent.path`][] is deprecated due to its lack of consistency across
+release lines. Please use [`dirent.parentPath`][] instead.
 
 [NIST SP 800-38D]: https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38d.pdf
 [RFC 6066]: https://tools.ietf.org/html/rfc6066#section-3
@@ -3369,11 +3392,13 @@ In a future version of Node.js, [`message.headers`][],
 [`decipher.setAuthTag()`]: crypto.md#deciphersetauthtagbuffer-encoding
 [`diagnostics_channel.subscribe(name, onMessage)`]: diagnostics_channel.md#diagnostics_channelsubscribename-onmessage
 [`diagnostics_channel.unsubscribe(name, onMessage)`]: diagnostics_channel.md#diagnostics_channelunsubscribename-onmessage
+[`dirent.parentPath`]: fs.md#direntparentpath
+[`dirent.path`]: fs.md#direntpath
 [`dns.lookup()`]: dns.md#dnslookuphostname-options-callback
 [`dnsPromises.lookup()`]: dns.md#dnspromiseslookuphostname-options
 [`domain`]: domain.md
 [`ecdh.setPublicKey()`]: crypto.md#ecdhsetpublickeypublickey-encoding
-[`emitter.listenerCount(eventName)`]: events.md#emitterlistenercounteventname
+[`emitter.listenerCount(eventName)`]: events.md#emitterlistenercounteventname-listener
 [`events.listenerCount(emitter, eventName)`]: events.md#eventslistenercountemitter-eventname
 [`fs.FileHandle`]: fs.md#class-filehandle
 [`fs.access()`]: fs.md#fsaccesspath-mode-callback
@@ -3475,6 +3500,7 @@ In a future version of Node.js, [`message.headers`][],
 [from_string_encoding]: buffer.md#static-method-bufferfromstring-encoding
 [legacy URL API]: url.md#legacy-url-api
 [legacy `urlObject`]: url.md#legacy-urlobject
+[policies]: permissions.md#policies
 [static methods of `crypto.Certificate()`]: crypto.md#class-certificate
 [subpath exports]: packages.md#subpath-exports
 [subpath imports]: packages.md#subpath-imports

@@ -60,28 +60,17 @@ enum RegisterCode {
 
 class Register : public RegisterBase<Register, kRegAfterLast> {
  public:
-  constexpr bool is_byte_register() const { return code() <= 3; }
+  bool is_byte_register() const { return code() <= 3; }
   // Return the high bit of the register code as a 0 or 1.  Used often
   // when constructing the REX prefix byte.
-  constexpr int high_bit() const { return code() >> 3; }
+  int high_bit() const { return code() >> 3; }
   // Return the 3 low bits of the register code.  Used when encoding registers
   // in modR/M, SIB, and opcode bytes.
-  constexpr int low_bits() const { return code() & 0x7; }
+  int low_bits() const { return code() & 0x7; }
 
  private:
   friend class RegisterBase<Register, kRegAfterLast>;
   explicit constexpr Register(int code) : RegisterBase(code) {}
-};
-
-// Register that store tagged value. Tagged value is in compressed form when
-// pointer compression is enabled.
-class TaggedRegister {
- public:
-  explicit TaggedRegister(Register reg) : reg_(reg) {}
-  Register reg() { return reg_; }
-
- private:
-  Register reg_;
 };
 
 ASSERT_TRIVIALLY_COPYABLE(Register);
@@ -214,7 +203,7 @@ static_assert(sizeof(XMMRegister) <= sizeof(int),
 class YMMRegister : public XMMRegister {
  public:
   static constexpr YMMRegister from_code(int code) {
-    V8_ASSUME(code >= 0 && code < XMMRegister::kNumRegisters);
+    DCHECK(base::IsInRange(code, 0, XMMRegister::kNumRegisters - 1));
     return YMMRegister(code);
   }
 
@@ -232,8 +221,6 @@ using FloatRegister = XMMRegister;
 using DoubleRegister = XMMRegister;
 
 using Simd128Register = XMMRegister;
-
-using Simd256Register = YMMRegister;
 
 #define DECLARE_REGISTER(R) \
   constexpr DoubleRegister R = DoubleRegister::from_code(kDoubleCode_##R);

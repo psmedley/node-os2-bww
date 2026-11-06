@@ -52,17 +52,16 @@ class V8_NODISCARD MaglevCompilationHandleScope final {
 MaglevCompilationInfo::MaglevCompilationInfo(Isolate* isolate,
                                              Handle<JSFunction> function)
     : zone_(isolate->allocator(), kMaglevZoneName),
+      isolate_(isolate),
       broker_(new compiler::JSHeapBroker(
-          isolate, zone(), v8_flags.trace_heap_broker, CodeKind::MAGLEV))
-#define V(Name) , Name##_(v8_flags.Name)
+          isolate, zone(), FLAG_trace_heap_broker, CodeKind::MAGLEV)),
+      shared_(function->shared(), isolate),
+      function_(function)
+#define V(Name) , Name##_(FLAG_##Name)
           MAGLEV_COMPILATION_FLAG_LIST(V)
 #undef V
-      ,
-      specialize_to_function_context_(
-          v8_flags.maglev_function_context_specialization &&
-          function->raw_feedback_cell().map() ==
-              ReadOnlyRoots(isolate).one_closure_cell_map()) {
-  DCHECK(v8_flags.maglev);
+{
+  DCHECK(FLAG_maglev);
 
   MaglevCompilationHandleScope compilation(isolate, this);
 
@@ -92,15 +91,12 @@ void MaglevCompilationInfo::set_graph_labeller(
   graph_labeller_.reset(graph_labeller);
 }
 
-void MaglevCompilationInfo::set_translation_array_builder(
-    std::unique_ptr<TranslationArrayBuilder> translation_array_builder,
-    std::unique_ptr<IdentityMap<int, base::DefaultAllocationPolicy>>
-        deopt_literals) {
-  translation_array_builder_ = std::move(translation_array_builder);
-  deopt_literals_ = std::move(deopt_literals);
+void MaglevCompilationInfo::ReopenHandlesInNewHandleScope(Isolate* isolate) {
+  DCHECK(!shared_.is_null());
+  shared_ = handle(*shared_, isolate);
+  DCHECK(!function_.is_null());
+  function_ = handle(*function_, isolate);
 }
-
-void MaglevCompilationInfo::ReopenHandlesInNewHandleScope(Isolate* isolate) {}
 
 void MaglevCompilationInfo::set_persistent_handles(
     std::unique_ptr<PersistentHandles>&& persistent_handles) {

@@ -15,21 +15,19 @@ namespace v8 {
 namespace internal {
 
 // Verify write barrier offsets match the the real offsets.
-static_assert(BasicMemoryChunk::Flag::IS_EXECUTABLE ==
+STATIC_ASSERT(BasicMemoryChunk::Flag::IS_EXECUTABLE ==
               heap_internals::MemoryChunk::kIsExecutableBit);
-static_assert(BasicMemoryChunk::Flag::IN_SHARED_HEAP ==
-              heap_internals::MemoryChunk::kInSharedHeapBit);
-static_assert(BasicMemoryChunk::Flag::INCREMENTAL_MARKING ==
+STATIC_ASSERT(BasicMemoryChunk::Flag::INCREMENTAL_MARKING ==
               heap_internals::MemoryChunk::kMarkingBit);
-static_assert(BasicMemoryChunk::Flag::FROM_PAGE ==
+STATIC_ASSERT(BasicMemoryChunk::Flag::FROM_PAGE ==
               heap_internals::MemoryChunk::kFromPageBit);
-static_assert(BasicMemoryChunk::Flag::TO_PAGE ==
+STATIC_ASSERT(BasicMemoryChunk::Flag::TO_PAGE ==
               heap_internals::MemoryChunk::kToPageBit);
-static_assert(BasicMemoryChunk::Flag::READ_ONLY_HEAP ==
+STATIC_ASSERT(BasicMemoryChunk::Flag::READ_ONLY_HEAP ==
               heap_internals::MemoryChunk::kReadOnlySpaceBit);
-static_assert(BasicMemoryChunk::kFlagsOffset ==
+STATIC_ASSERT(BasicMemoryChunk::kFlagsOffset ==
               heap_internals::MemoryChunk::kFlagsOffset);
-static_assert(BasicMemoryChunk::kHeapOffset ==
+STATIC_ASSERT(BasicMemoryChunk::kHeapOffset ==
               heap_internals::MemoryChunk::kHeapOffset);
 
 // static
@@ -86,29 +84,29 @@ void BasicMemoryChunk::SynchronizedHeapLoad() const {
 
 class BasicMemoryChunkValidator {
   // Computed offsets should match the compiler generated ones.
-  static_assert(BasicMemoryChunk::kSizeOffset ==
+  STATIC_ASSERT(BasicMemoryChunk::kSizeOffset ==
                 offsetof(BasicMemoryChunk, size_));
-  static_assert(BasicMemoryChunk::kFlagsOffset ==
+  STATIC_ASSERT(BasicMemoryChunk::kFlagsOffset ==
                 offsetof(BasicMemoryChunk, main_thread_flags_));
-  static_assert(BasicMemoryChunk::kHeapOffset ==
+  STATIC_ASSERT(BasicMemoryChunk::kHeapOffset ==
                 offsetof(BasicMemoryChunk, heap_));
-  static_assert(offsetof(BasicMemoryChunk, size_) ==
+  STATIC_ASSERT(offsetof(BasicMemoryChunk, size_) ==
                 MemoryChunkLayout::kSizeOffset);
-  static_assert(offsetof(BasicMemoryChunk, heap_) ==
+  STATIC_ASSERT(offsetof(BasicMemoryChunk, heap_) ==
                 MemoryChunkLayout::kHeapOffset);
-  static_assert(offsetof(BasicMemoryChunk, area_start_) ==
+  STATIC_ASSERT(offsetof(BasicMemoryChunk, area_start_) ==
                 MemoryChunkLayout::kAreaStartOffset);
-  static_assert(offsetof(BasicMemoryChunk, area_end_) ==
+  STATIC_ASSERT(offsetof(BasicMemoryChunk, area_end_) ==
                 MemoryChunkLayout::kAreaEndOffset);
-  static_assert(offsetof(BasicMemoryChunk, allocated_bytes_) ==
+  STATIC_ASSERT(offsetof(BasicMemoryChunk, allocated_bytes_) ==
                 MemoryChunkLayout::kAllocatedBytesOffset);
-  static_assert(offsetof(BasicMemoryChunk, wasted_memory_) ==
+  STATIC_ASSERT(offsetof(BasicMemoryChunk, wasted_memory_) ==
                 MemoryChunkLayout::kWastedMemoryOffset);
-  static_assert(offsetof(BasicMemoryChunk, high_water_mark_) ==
+  STATIC_ASSERT(offsetof(BasicMemoryChunk, high_water_mark_) ==
                 MemoryChunkLayout::kHighWaterMarkOffset);
-  static_assert(offsetof(BasicMemoryChunk, owner_) ==
+  STATIC_ASSERT(offsetof(BasicMemoryChunk, owner_) ==
                 MemoryChunkLayout::kOwnerOffset);
-  static_assert(offsetof(BasicMemoryChunk, reservation_) ==
+  STATIC_ASSERT(offsetof(BasicMemoryChunk, reservation_) ==
                 MemoryChunkLayout::kReservationOffset);
 };
 

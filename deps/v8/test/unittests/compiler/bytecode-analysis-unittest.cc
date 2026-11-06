@@ -5,8 +5,10 @@
 #include "src/compiler/bytecode-analysis.h"
 
 #include "src/compiler/bytecode-liveness-map.h"
+#include "src/init/v8.h"
 #include "src/interpreter/bytecode-array-builder.h"
 #include "src/interpreter/bytecode-array-iterator.h"
+#include "src/interpreter/bytecode-decoder.h"
 #include "src/interpreter/bytecode-label.h"
 #include "src/interpreter/control-flow-builders.h"
 #include "src/objects/objects-inl.h"
@@ -29,8 +31,8 @@ class BytecodeAnalysisTest : public TestWithIsolateAndZone {
   static void SetUpTestSuite() {
     CHECK_NULL(save_flags_);
     save_flags_ = new SaveFlags();
-    i::v8_flags.ignition_elide_noneffectful_bytecodes = false;
-    i::v8_flags.ignition_reo = false;
+    i::FLAG_ignition_elide_noneffectful_bytecodes = false;
+    i::FLAG_ignition_reo = false;
 
     TestWithIsolateAndZone::SetUpTestSuite();
   }
@@ -209,7 +211,6 @@ TEST_F(BytecodeAnalysisTest, DiamondLookupsAndBinds) {
 
 TEST_F(BytecodeAnalysisTest, SimpleLoop) {
   interpreter::BytecodeArrayBuilder builder(zone(), 3, 3);
-  FeedbackVectorSpec spec(zone());
   std::vector<std::pair<std::string, std::string>> expected_liveness;
 
   interpreter::Register reg_0(0);
@@ -220,7 +221,7 @@ TEST_F(BytecodeAnalysisTest, SimpleLoop) {
   expected_liveness.emplace_back("..LL", "L.L.");
 
   {
-    interpreter::LoopBuilder loop_builder(&builder, nullptr, nullptr, &spec);
+    interpreter::LoopBuilder loop_builder(&builder, nullptr, nullptr);
     loop_builder.LoopHeader();
 
     builder.LoadUndefined();
@@ -310,13 +311,12 @@ TEST_F(BytecodeAnalysisTest, DiamondInLoop) {
   // reprocessed.
 
   interpreter::BytecodeArrayBuilder builder(zone(), 3, 3);
-  FeedbackVectorSpec spec(zone());
   std::vector<std::pair<std::string, std::string>> expected_liveness;
 
   interpreter::Register reg_0(0);
 
   {
-    interpreter::LoopBuilder loop_builder(&builder, nullptr, nullptr, &spec);
+    interpreter::LoopBuilder loop_builder(&builder, nullptr, nullptr);
     loop_builder.LoopHeader();
 
     builder.LoadUndefined();
@@ -381,14 +381,13 @@ TEST_F(BytecodeAnalysisTest, KillingLoopInsideLoop) {
   // r1 becomes live in 3 (via 5), but r0 stays dead (because of 4).
 
   interpreter::BytecodeArrayBuilder builder(zone(), 3, 3);
-  FeedbackVectorSpec spec(zone());
   std::vector<std::pair<std::string, std::string>> expected_liveness;
 
   interpreter::Register reg_0(0);
   interpreter::Register reg_1(1);
 
   {
-    interpreter::LoopBuilder loop_builder(&builder, nullptr, nullptr, &spec);
+    interpreter::LoopBuilder loop_builder(&builder, nullptr, nullptr);
     loop_builder.LoopHeader();
 
     // Gen r0.
@@ -404,8 +403,7 @@ TEST_F(BytecodeAnalysisTest, KillingLoopInsideLoop) {
     expected_liveness.emplace_back(".L.L", ".L..");
 
     {
-      interpreter::LoopBuilder inner_loop_builder(&builder, nullptr, nullptr,
-                                                  &spec);
+      interpreter::LoopBuilder inner_loop_builder(&builder, nullptr, nullptr);
       inner_loop_builder.LoopHeader();
 
       // Kill r0.

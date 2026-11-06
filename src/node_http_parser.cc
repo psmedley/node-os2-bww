@@ -79,6 +79,8 @@ const uint32_t kOnExecute = 5;
 const uint32_t kOnTimeout = 6;
 // Any more fields than this will be flushed into JS
 const size_t kMaxHeaderFieldsCount = 32;
+// Maximum size of chunk extensions
+const size_t kMaxChunkExtensionsSize = 16384;
 
 const uint32_t kLenientNone = 0;
 const uint32_t kLenientHeaders = 1 << 0;
@@ -93,10 +95,9 @@ inline bool IsOWS(char c) {
 
 class BindingData : public BaseObject {
  public:
-  BindingData(Environment* env, Local<Object> obj)
-      : BaseObject(env, obj) {}
+  BindingData(Realm* realm, Local<Object> obj) : BaseObject(realm, obj) {}
 
-  static constexpr FastStringKey type_name { "http_parser" };
+  SET_BINDING_ID(http_parser_binding_data)
 
   std::vector<char> parser_buffer;
   bool parser_buffer_in_use = false;
@@ -262,6 +263,7 @@ class Parser : public AsyncWrap, public StreamListener {
 
     num_fields_ = num_values_ = 0;
     headers_completed_ = false;
+    chunk_extensions_nread_ = 0;
     last_message_start_ = uv_hrtime();
     url_.Reset();
     status_message_.Reset();
@@ -517,9 +519,22 @@ class Parser : public AsyncWrap, public StreamListener {
     return 0;
   }
 
-  // Reset nread for the next chunk
+  int on_chunk_extension(const char* at, size_t length) {
+    chunk_extensions_nread_ += length;
+
+    if (chunk_extensions_nread_ > kMaxChunkExtensionsSize) {
+      llhttp_set_error_reason(&parser_,
+        "HPE_CHUNK_EXTENSIONS_OVERFLOW:Chunk extensions overflow");
+      return HPE_USER;
+    }
+
+    return 0;
+  }
+
+  // Reset nread for the next chunk and also reset the extensions counter
   int on_chunk_header() {
     header_nread_ = 0;
+    chunk_extensions_nread_ = 0;
     return 0;
   }
 
@@ -531,7 +546,7 @@ class Parser : public AsyncWrap, public StreamListener {
   }
 
   static void New(const FunctionCallbackInfo<Value>& args) {
-    BindingData* binding_data = Environment::GetBindingData<BindingData>(args);
+    BindingData* binding_data = Realm::GetBindingData<BindingData>(args);
     new Parser(binding_data, args.This());
   }
 
@@ -987,6 +1002,7 @@ class Parser : public AsyncWrap, public StreamListener {
   bool headers_completed_ = false;
   bool pending_pause_ = false;
   uint64_t header_nread_ = 0;
+  uint64_t chunk_extensions_nread_ = 0;
   uint64_t max_http_header_size_;
   uint64_t last_message_start_;
   ConnectionsList* connectionsList_;
@@ -1037,68 +1053,60 @@ void ConnectionsList::New(const FunctionCallbackInfo<Value>& args) {
 
 void ConnectionsList::All(const FunctionCallbackInfo<Value>& args) {
   Isolate* isolate = args.GetIsolate();
-  Local<Context> context = isolate->GetCurrentContext();
 
-  Local<Array> all = Array::New(isolate);
   ConnectionsList* list;
 
   ASSIGN_OR_RETURN_UNWRAP(&list, args.Holder());
 
-  uint32_t i = 0;
+  std::vector<Local<Value>> result;
+  result.reserve(list->all_connections_.size());
   for (auto parser : list->all_connections_) {
-    if (all->Set(context, i++, parser->object()).IsNothing()) {
-      return;
-    }
+    result.emplace_back(parser->object());
   }
 
-  return args.GetReturnValue().Set(all);
+  return args.GetReturnValue().Set(
+      Array::New(isolate, result.data(), result.size()));
 }
 
 void ConnectionsList::Idle(const FunctionCallbackInfo<Value>& args) {
   Isolate* isolate = args.GetIsolate();
-  Local<Context> context = isolate->GetCurrentContext();
 
-  Local<Array> idle = Array::New(isolate);
   ConnectionsList* list;
 
   ASSIGN_OR_RETURN_UNWRAP(&list, args.Holder());
 
-  uint32_t i = 0;
+  std::vector<Local<Value>> result;
+  result.reserve(list->all_connections_.size());
   for (auto parser : list->all_connections_) {
     if (parser->last_message_start_ == 0) {
-      if (idle->Set(context, i++, parser->object()).IsNothing()) {
-        return;
-      }
+      result.emplace_back(parser->object());
     }
   }
 
-  return args.GetReturnValue().Set(idle);
+  return args.GetReturnValue().Set(
+      Array::New(isolate, result.data(), result.size()));
 }
 
 void ConnectionsList::Active(const FunctionCallbackInfo<Value>& args) {
   Isolate* isolate = args.GetIsolate();
-  Local<Context> context = isolate->GetCurrentContext();
 
-  Local<Array> active = Array::New(isolate);
   ConnectionsList* list;
 
   ASSIGN_OR_RETURN_UNWRAP(&list, args.Holder());
 
-  uint32_t i = 0;
+  std::vector<Local<Value>> result;
+  result.reserve(list->active_connections_.size());
   for (auto parser : list->active_connections_) {
-    if (active->Set(context, i++, parser->object()).IsNothing()) {
-      return;
-    }
+    result.emplace_back(parser->object());
   }
 
-  return args.GetReturnValue().Set(active);
+  return args.GetReturnValue().Set(
+      Array::New(isolate, result.data(), result.size()));
 }
 
 void ConnectionsList::Expired(const FunctionCallbackInfo<Value>& args) {
   Isolate* isolate = args.GetIsolate();
-  Local<Context> context = isolate->GetCurrentContext();
 
-  Local<Array> expired = Array::New(isolate);
   ConnectionsList* list;
 
   ASSIGN_OR_RETURN_UNWRAP(&list, args.Holder());
@@ -1110,20 +1118,33 @@ void ConnectionsList::Expired(const FunctionCallbackInfo<Value>& args) {
     static_cast<uint64_t>(args[1].As<Uint32>()->Value()) * 1000000;
 
   if (headers_timeout == 0 && request_timeout == 0) {
-    return args.GetReturnValue().Set(expired);
+    return args.GetReturnValue().Set(Array::New(isolate, 0));
   } else if (request_timeout > 0 && headers_timeout > request_timeout) {
     std::swap(headers_timeout, request_timeout);
   }
 
+  // On IoT or embedded devices the uv_hrtime() may return the timestamp
+  // that is smaller than configured timeout for headers or request
+  // to prevent subtracting two unsigned integers
+  // that can yield incorrect results we should check
+  // if the 'now' is bigger than the timeout for headers or request
   const uint64_t now = uv_hrtime();
   const uint64_t headers_deadline =
-    headers_timeout > 0 ? now - headers_timeout : 0;
+      (headers_timeout > 0 && now > headers_timeout) ? now - headers_timeout
+                                                     : 0;
   const uint64_t request_deadline =
-    request_timeout > 0 ? now - request_timeout : 0;
+      (request_timeout > 0 && now > request_timeout) ? now - request_timeout
+                                                     : 0;
 
-  uint32_t i = 0;
+  if (headers_deadline == 0 && request_deadline == 0) {
+    return args.GetReturnValue().Set(Array::New(isolate, 0));
+  }
+
   auto iter = list->active_connections_.begin();
   auto end = list->active_connections_.end();
+
+  std::vector<Local<Value>> result;
+  result.reserve(list->active_connections_.size());
   while (iter != end) {
     Parser* parser = *iter;
     iter++;
@@ -1136,71 +1157,49 @@ void ConnectionsList::Expired(const FunctionCallbackInfo<Value>& args) {
         request_deadline > 0 &&
         parser->last_message_start_ < request_deadline)
     ) {
-      if (expired->Set(context, i++, parser->object()).IsNothing()) {
-        return;
-      }
+      result.emplace_back(parser->object());
 
       list->active_connections_.erase(parser);
     }
   }
 
-  return args.GetReturnValue().Set(expired);
+  return args.GetReturnValue().Set(
+      Array::New(isolate, result.data(), result.size()));
 }
 
 const llhttp_settings_t Parser::settings = {
-    Proxy<Call, &Parser::on_message_begin>::Raw,
-    Proxy<DataCall, &Parser::on_url>::Raw,
-    Proxy<DataCall, &Parser::on_status>::Raw,
+  Proxy<Call, &Parser::on_message_begin>::Raw,
+  Proxy<DataCall, &Parser::on_url>::Raw,
+  Proxy<DataCall, &Parser::on_status>::Raw,
+  Proxy<DataCall, &Parser::on_header_field>::Raw,
+  Proxy<DataCall, &Parser::on_header_value>::Raw,
+  Proxy<Call, &Parser::on_headers_complete>::Raw,
+  Proxy<DataCall, &Parser::on_chunk_extension>::Raw,
+  Proxy<DataCall, &Parser::on_body>::Raw,
+  Proxy<Call, &Parser::on_message_complete>::Raw,
+  Proxy<Call, &Parser::on_chunk_header>::Raw,
+  Proxy<Call, &Parser::on_chunk_complete>::Raw,
 
-    // on_method
-    nullptr,
-    // on_version
-    nullptr,
-
-    Proxy<DataCall, &Parser::on_header_field>::Raw,
-    Proxy<DataCall, &Parser::on_header_value>::Raw,
-
-    // on_chunk_extension_name
-    nullptr,
-    // on_chunk_extension_value
-    nullptr,
-
-    Proxy<Call, &Parser::on_headers_complete>::Raw,
-    Proxy<DataCall, &Parser::on_body>::Raw,
-    Proxy<Call, &Parser::on_message_complete>::Raw,
-
-    // on_url_complete
-    nullptr,
-    // on_status_complete
-    nullptr,
-    // on_method_complete
-    nullptr,
-    // on_version_complete
-    nullptr,
-    // on_header_field_complete
-    nullptr,
-    // on_header_value_complete
-    nullptr,
-    // on_chunk_extension_name_complete
-    nullptr,
-    // on_chunk_extension_value_complete
-    nullptr,
-
-    Proxy<Call, &Parser::on_chunk_header>::Raw,
-    Proxy<Call, &Parser::on_chunk_complete>::Raw,
-
-    // on_reset,
-    nullptr,
+  // on_url_complete
+  nullptr,
+  // on_status_complete
+  nullptr,
+  // on_header_field_complete
+  nullptr,
+  // on_header_value_complete
+  nullptr,
 };
+
 
 void InitializeHttpParser(Local<Object> target,
                           Local<Value> unused,
                           Local<Context> context,
                           void* priv) {
-  Environment* env = Environment::GetCurrent(context);
+  Realm* realm = Realm::GetCurrent(context);
+  Environment* env = realm->env();
   Isolate* isolate = env->isolate();
   BindingData* const binding_data =
-      env->AddBindingData<BindingData>(context, target);
+      realm->AddBindingData<BindingData>(context, target);
   if (binding_data == nullptr) return;
 
   Local<FunctionTemplate> t = NewFunctionTemplate(isolate, Parser::New);

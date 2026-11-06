@@ -41,7 +41,7 @@ group("gn_all") {
     deps += [
       "benchmarks/cpp:gn_all",
       "cctest:cctest",
-      "unittests:generate-bytecode-expectations",
+      "cctest:generate-bytecode-expectations",
       "unittests:unittests",
     ]
   }

@@ -5,7 +5,6 @@
 #include "src/compiler/loop-analysis.h"
 
 #include "src/codegen/tick-counter.h"
-#include "src/compiler/all-nodes.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/graph.h"
 #include "src/compiler/node-marker.h"
@@ -543,7 +542,7 @@ LoopTree* LoopFinder::BuildLoopTree(Graph* graph, TickCounter* tick_counter,
       graph->zone()->New<LoopTree>(graph->NodeCount(), graph->zone());
   LoopFinderImpl finder(graph, loop_tree, tick_counter, zone);
   finder.Run();
-  if (v8_flags.trace_turbo_loop) {
+  if (FLAG_trace_turbo_loop) {
     finder.Print();
   }
   return loop_tree;
@@ -552,8 +551,7 @@ LoopTree* LoopFinder::BuildLoopTree(Graph* graph, TickCounter* tick_counter,
 #if V8_ENABLE_WEBASSEMBLY
 // static
 ZoneUnorderedSet<Node*>* LoopFinder::FindSmallInnermostLoopFromHeader(
-    Node* loop_header, AllNodes& all_nodes, Zone* zone, size_t max_size,
-    bool calls_are_large) {
+    Node* loop_header, Zone* zone, size_t max_size, bool calls_are_large) {
   auto* visited = zone->New<ZoneUnorderedSet<Node*>>(zone);
   std::vector<Node*> queue;
 
@@ -622,7 +620,6 @@ ZoneUnorderedSet<Node*>* LoopFinder::FindSmallInnermostLoopFromHeader(
             WasmCode::kWasmStackGuard,
             // Fast table operations.
             WasmCode::kWasmTableGet, WasmCode::kWasmTableSet,
-            WasmCode::kWasmTableGetFuncRef, WasmCode::kWasmTableSetFuncRef,
             WasmCode::kWasmTableGrow,
             // Atomics.
             WasmCode::kWasmAtomicNotify, WasmCode::kWasmI32AtomicWait32,
@@ -656,8 +653,6 @@ ZoneUnorderedSet<Node*>* LoopFinder::FindSmallInnermostLoopFromHeader(
   for (Node* node : *visited) {
     // The loop header is allowed to point outside the loop.
     if (node == loop_header) continue;
-
-    if (!all_nodes.IsLive(node)) continue;
 
     for (Edge edge : node->input_edges()) {
       Node* input = edge.to();
@@ -698,7 +693,7 @@ bool LoopFinder::HasMarkedExits(LoopTree* loop_tree,
             unmarked_exit = (use->opcode() != IrOpcode::kTerminate);
         }
         if (unmarked_exit) {
-          if (v8_flags.trace_turbo_loop) {
+          if (FLAG_trace_turbo_loop) {
             PrintF(
                 "Cannot peel loop %i. Loop exit without explicit mark: Node %i "
                 "(%s) is inside loop, but its use %i (%s) is outside.\n",

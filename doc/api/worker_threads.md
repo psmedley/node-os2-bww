@@ -68,9 +68,7 @@ added:
   - v15.12.0
   - v14.18.0
 changes:
-  - version:
-    - v17.5.0
-    - v16.15.0
+  - version: v17.5.0
     pr-url: https://github.com/nodejs/node/pull/41272
     description: No longer experimental.
 -->
@@ -300,9 +298,7 @@ added:
   - v15.12.0
   - v14.18.0
 changes:
-  - version:
-    - v17.5.0
-    - v16.15.0
+  - version: v17.5.0
     pr-url: https://github.com/nodejs/node/pull/41272
     description: No longer experimental.
 -->
@@ -770,9 +766,7 @@ port2.postMessage(new URL('https://example.org'));
 ### `port.hasRef()`
 
 <!-- YAML
-added:
-  - v18.1.0
-  - v16.17.0
+added: v18.1.0
 -->
 
 > Stability: 1 - Experimental
@@ -850,7 +844,8 @@ Notable differences inside a Worker environment are:
   unless otherwise specified. Changes to one copy are not visible in other
   threads, and are not visible to native add-ons (unless
   [`worker.SHARE_ENV`][] is passed as the `env` option to the
-  [`Worker`][] constructor).
+  [`Worker`][] constructor). On Windows, unlike the main thread, a copy of the
+  environment variables operates in a case-sensitive manner.
 * [`process.title`][] cannot be modified.
 * Signals are not delivered through [`process.on('...')`][Signals events].
 * Execution may stop at any point as a result of [`worker.terminate()`][]
@@ -906,6 +901,10 @@ if (isMainThread) {
 <!-- YAML
 added: v10.5.0
 changes:
+  - version: v18.16.0
+    pr-url: https://github.com/nodejs/node/pull/46832
+    description: Added support for a `name` option, which allows
+                 adding a name to worker title for debugging.
   - version: v14.9.0
     pr-url: https://github.com/nodejs/node/pull/34584
     description: The `filename` parameter can be a WHATWG `URL` object using
@@ -1004,6 +1003,9 @@ changes:
       used for generated code.
     * `stackSizeMb` {number} The default maximum stack size for the thread.
       Small values may lead to unusable Worker instances. **Default:** `4`.
+  * `name` {string} An optional `name` to be appended to the worker title
+    for debugging/identification purposes, making the final title as
+    `[worker ${id}] ${name}`. **Default:** `''`.
 
 ### Event: `'error'`
 
@@ -1067,23 +1069,14 @@ added: v10.5.0
 The `'online'` event is emitted when the worker thread has started executing
 JavaScript code.
 
-### `worker.getHeapSnapshot([options])`
+### `worker.getHeapSnapshot()`
 
 <!-- YAML
 added:
  - v13.9.0
  - v12.17.0
-changes:
-  - version: v19.1.0
-    pr-url: https://github.com/nodejs/node/pull/44989
-    description: Support options to configure the heap snapshot.
 -->
 
-* `options` {Object}
-  * `exposeInternals` {boolean} If true, expose internals in the heap snapshot.
-    **Default:** `false`.
-  * `exposeNumericValues` {boolean} If true, expose numeric values in
-    artificial fields. **Default:** `false`.
 * Returns: {Promise} A promise for a Readable Stream containing
   a V8 heap snapshot
 
@@ -1388,7 +1381,7 @@ thread spawned will spawn another until the application crashes.
 [`require('node:worker_threads').threadId`]: #workerthreadid
 [`require('node:worker_threads').workerData`]: #workerworkerdata
 [`trace_events`]: tracing.md
-[`v8.getHeapSnapshot()`]: v8.md#v8getheapsnapshotoptions
+[`v8.getHeapSnapshot()`]: v8.md#v8getheapsnapshot
 [`vm`]: vm.md
 [`worker.SHARE_ENV`]: #workershare_env
 [`worker.on('message')`]: #event-message_1

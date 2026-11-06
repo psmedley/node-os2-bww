@@ -124,6 +124,16 @@ async function prepareKeys() {
       }
 
       {
+        // Default length
+        const bits = await subtle.deriveBits({
+          name: 'ECDH',
+          public: publicKey
+        }, privateKey);
+
+        assert.strictEqual(Buffer.from(bits).toString('hex'), result);
+      }
+
+      {
         // Short Result
         const bits = await subtle.deriveBits({
           name: 'ECDH',
@@ -166,7 +176,7 @@ async function prepareKeys() {
         { name: 'ECDH' },
         keys['P-384'].privateKey,
         8 * keys['P-384'].size),
-      { code: 'ERR_INVALID_ARG_TYPE' });
+      { code: 'ERR_MISSING_OPTION' });
   }
 
   {

@@ -2,19 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "test/cctest/test-transitions.h"
-
 #include <stdlib.h>
-
 #include <utility>
+
+#include "src/init/v8.h"
 
 #include "src/codegen/compilation-cache.h"
 #include "src/execution/execution.h"
+#include "src/handles/global-handles.h"
 #include "src/heap/factory.h"
 #include "src/objects/field-type.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/transitions-inl.h"
 #include "test/cctest/cctest.h"
+#include "test/cctest/test-transitions.h"
 
 namespace v8 {
 namespace internal {
@@ -204,7 +205,7 @@ TEST(TransitionArray_SameFieldNamesDifferentAttributesSimple) {
   CHECK(map0->raw_transitions()->IsSmi());
 
   const int ATTRS_COUNT = (READ_ONLY | DONT_ENUM | DONT_DELETE) + 1;
-  static_assert(ATTRS_COUNT == 8);
+  STATIC_ASSERT(ATTRS_COUNT == 8);
   Handle<Map> attr_maps[ATTRS_COUNT];
   Handle<String> name = factory->InternalizeUtf8String("foo");
 
@@ -267,7 +268,7 @@ TEST(TransitionArray_SameFieldNamesDifferentAttributes) {
   }
 
   const int ATTRS_COUNT = (READ_ONLY | DONT_ENUM | DONT_DELETE) + 1;
-  static_assert(ATTRS_COUNT == 8);
+  STATIC_ASSERT(ATTRS_COUNT == 8);
   Handle<Map> attr_maps[ATTRS_COUNT];
   Handle<String> name = factory->InternalizeUtf8String("foo");
 

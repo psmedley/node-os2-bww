@@ -68,10 +68,6 @@ static void FloodWithInc(Isolate* isolate, TestingAssemblerBuffer* buffer) {
   for (int i = 0; i < kNumInstr; ++i) {
     __ agfi(r2, Operand(1));
   }
-#elif V8_TARGET_ARCH_RISCV32
-  for (int i = 0; i < kNumInstr; ++i) {
-    __ Add32(a0, a0, Operand(1));
-  }
 #elif V8_TARGET_ARCH_RISCV64
   for (int i = 0; i < kNumInstr; ++i) {
     __ Add32(a0, a0, Operand(1));
@@ -117,18 +113,19 @@ TEST(TestFlushICacheOfWritable) {
     // Allow calling the function from C++.
     auto f = GeneratedCode<F0>::FromBuffer(isolate, buffer->start());
 
-    {
-      AssemblerBufferWriteScope rw_buffer_scope(*buffer);
-      FloodWithInc(isolate, buffer.get());
-      FlushInstructionCache(buffer->start(), buffer->size());
-    }
+    CHECK(SetPermissions(GetPlatformPageAllocator(), buffer->start(),
+                         buffer->size(), v8::PageAllocator::kReadWrite));
+    FloodWithInc(isolate, buffer.get());
+    FlushInstructionCache(buffer->start(), buffer->size());
+    CHECK(SetPermissions(GetPlatformPageAllocator(), buffer->start(),
+                         buffer->size(), v8::PageAllocator::kReadExecute));
     CHECK_EQ(23 + kNumInstr, f.Call(23));  // Call into generated code.
-
-    {
-      AssemblerBufferWriteScope rw_buffer_scope(*buffer);
-      FloodWithNop(isolate, buffer.get());
-      FlushInstructionCache(buffer->start(), buffer->size());
-    }
+    CHECK(SetPermissions(GetPlatformPageAllocator(), buffer->start(),
+                         buffer->size(), v8::PageAllocator::kReadWrite));
+    FloodWithNop(isolate, buffer.get());
+    FlushInstructionCache(buffer->start(), buffer->size());
+    CHECK(SetPermissions(GetPlatformPageAllocator(), buffer->start(),
+                         buffer->size(), v8::PageAllocator::kReadExecute));
     CHECK_EQ(23, f.Call(23));  // Call into generated code.
   }
 }
@@ -187,23 +184,41 @@ TEST(TestFlushICacheOfWritableAndExecutable) {
   Isolate* isolate = CcTest::i_isolate();
   HandleScope handles(isolate);
 
+  struct V8_NODISCARD EnableWritePermissionsOnMacArm64Scope {
+#if defined(V8_OS_DARWIN) && defined(V8_HOST_ARCH_ARM64)
+// Ignoring this warning is considered better than relying on
+// __builtin_available.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+    EnableWritePermissionsOnMacArm64Scope() { pthread_jit_write_protect_np(0); }
+    ~EnableWritePermissionsOnMacArm64Scope() {
+      pthread_jit_write_protect_np(1);
+    }
+#pragma clang diagnostic pop
+#else
+    EnableWritePermissionsOnMacArm64Scope() {
+      // Define a constructor to avoid unused variable warnings.
+    }
+#endif
+  };
+
   for (int i = 0; i < kNumIterations; ++i) {
     auto buffer = AllocateAssemblerBuffer(kBufferSize, nullptr,
-                                          JitPermission::kMapAsJittable);
+                                          VirtualMemory::kMapAsJittable);
 
     // Allow calling the function from C++.
     auto f = GeneratedCode<F0>::FromBuffer(isolate, buffer->start());
 
-    buffer->MakeWritableAndExecutable();
-
+    CHECK(SetPermissions(GetPlatformPageAllocator(), buffer->start(),
+                         buffer->size(), v8::PageAllocator::kReadWriteExecute));
     {
-      RwxMemoryWriteScopeForTesting rw_scope;
+      EnableWritePermissionsOnMacArm64Scope write_scope;
       FloodWithInc(isolate, buffer.get());
       FlushInstructionCache(buffer->start(), buffer->size());
     }
     CHECK_EQ(23 + kNumInstr, f.Call(23));  // Call into generated code.
     {
-      RwxMemoryWriteScopeForTesting rw_scope;
+      EnableWritePermissionsOnMacArm64Scope write_scope;
       FloodWithNop(isolate, buffer.get());
       FlushInstructionCache(buffer->start(), buffer->size());
     }

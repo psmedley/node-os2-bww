@@ -6,11 +6,8 @@
 
 let validRoundingIncrements = [
   1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000];
-let maximumFractionDigits = 3;
-let minimumFractionDigits = maximumFractionDigits;
 
 validRoundingIncrements.forEach(function(roundingIncrement) {
-  let nf = new Intl.NumberFormat(undefined,
-      {roundingIncrement, minimumFractionDigits, maximumFractionDigits});
+  let nf = new Intl.NumberFormat(undefined, {roundingIncrement});
   assertEquals(roundingIncrement, nf.resolvedOptions().roundingIncrement);
 });

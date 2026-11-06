@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --allow-natives-syntax --turbofan
+// Flags: --allow-natives-syntax --opt
 
 // Test multiple arguments push for PACKED_SMI_ELEMENTS.
 (function() {

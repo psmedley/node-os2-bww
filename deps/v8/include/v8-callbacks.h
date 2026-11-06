@@ -12,7 +12,6 @@
 #include "cppgc/common.h"
 #include "v8-data.h"          // NOLINT(build/include_directory)
 #include "v8-local-handle.h"  // NOLINT(build/include_directory)
-#include "v8-promise.h"       // NOLINT(build/include_directory)
 #include "v8config.h"         // NOLINT(build/include_directory)
 
 #if defined(V8_OS_WIN)
@@ -106,7 +105,7 @@ struct JitCodeEvent {
     size_t line_number_table_size;
   };
 
-  wasm_source_info_t* wasm_source_info = nullptr;
+  wasm_source_info_t* wasm_source_info;
 
   union {
     // Only valid for CODE_ADDED.
@@ -217,13 +216,7 @@ using AddHistogramSampleCallback = void (*)(void* histogram, int sample);
 
 using FatalErrorCallback = void (*)(const char* location, const char* message);
 
-struct OOMDetails {
-  bool is_heap_oom = false;
-  const char* detail = nullptr;
-};
-
-using OOMErrorCallback = void (*)(const char* location,
-                                  const OOMDetails& details);
+using OOMErrorCallback = void (*)(const char* location, bool is_heap_oom);
 
 using MessageCallback = void (*)(Local<Message> message, Local<Value> data);
 
@@ -238,11 +231,8 @@ enum class CrashKeyId {
   kIsolateAddress,
   kReadonlySpaceFirstPageAddress,
   kMapSpaceFirstPageAddress,
-  kCodeRangeBaseAddress,
   kCodeSpaceFirstPageAddress,
   kDumpType,
-  kSnapshotChecksumCalculated,
-  kSnapshotChecksumExpected,
 };
 
 using AddCrashKeyCallback = void (*)(CrashKeyId id, const std::string& value);
@@ -310,13 +300,6 @@ using ApiImplementationCallback = void (*)(const FunctionCallbackInfo<Value>&);
 // --- Callback for WebAssembly.compileStreaming ---
 using WasmStreamingCallback = void (*)(const FunctionCallbackInfo<Value>&);
 
-enum class WasmAsyncSuccess { kSuccess, kFail };
-
-// --- Callback called when async WebAssembly operations finish ---
-using WasmAsyncResolvePromiseCallback = void (*)(
-    Isolate* isolate, Local<Context> context, Local<Promise::Resolver> resolver,
-    Local<Value> result, WasmAsyncSuccess success);
-
 // --- Callback for loading source map file for Wasm profiling support
 using WasmLoadSourceMapCallback = Local<String> (*)(Isolate* isolate,
                                                     const char* name);
@@ -326,6 +309,9 @@ using WasmSimdEnabledCallback = bool (*)(Local<Context> context);
 
 // --- Callback for checking if WebAssembly exceptions are enabled ---
 using WasmExceptionsEnabledCallback = bool (*)(Local<Context> context);
+
+// --- Callback for checking if WebAssembly dynamic tiering is enabled ---
+using WasmDynamicTieringEnabledCallback = bool (*)(Local<Context> context);
 
 // --- Callback for checking if the SharedArrayBuffer constructor is enabled ---
 using SharedArrayBufferConstructorEnabledCallback =

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --max-old-space-size=100 --no-concurrent-sparkplug
+// Flags: --max-old-space-size=100
 
 (function() {
   var source = "[]"

@@ -14,7 +14,6 @@ WASM_INSPECTOR_JS = "wasm-inspector-test.js"
 EXPECTED_SUFFIX = "-expected.txt"
 RESOURCES_FOLDER = "resources"
 
-
 class TestLoader(testsuite.JSTestLoader):
   @property
   def excluded_files(self):
@@ -56,9 +55,10 @@ class TestCase(testcase.TestCase):
 
   def _get_resources(self):
     return [
-        os.path.join('test', 'inspector', 'debugger', 'resources',
-                     'break-locations.js'),
-        os.path.join('test', 'inspector', WASM_INSPECTOR_JS),
+      os.path.join(
+        'test', 'inspector', 'debugger', 'resources', 'break-locations.js'),
+      os.path.join(
+        'test', 'inspector', 'wasm-inspector-test.js'),
     ]
 
   @property
@@ -67,3 +67,7 @@ class TestCase(testcase.TestCase):
         self.expected_outcomes,
         os.path.join(self.suite.root, self.path) + EXPECTED_SUFFIX,
         self.suite.test_config.regenerate_expected_files)
+
+
+def GetSuite(*args, **kwargs):
+  return TestSuite(*args, **kwargs)

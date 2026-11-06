@@ -10,6 +10,7 @@
 #include "src/compiler/js-heap-broker.h"
 #include "src/compiler/node.h"
 #include "src/handles/handles.h"
+#include "src/objects/map.h"
 #include "src/zone/zone-containers.h"
 
 namespace v8 {

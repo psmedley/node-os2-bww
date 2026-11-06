@@ -33,7 +33,10 @@
 namespace node {
 
 BaseObject::BaseObject(Environment* env, v8::Local<v8::Object> object)
-    : BaseObject(env->principal_realm(), object) {}
+    : BaseObject(env->principal_realm(), object) {
+  // TODO(legendecas): Check the shorthand is only used in the principal realm
+  // while allowing to create a BaseObject in a vm context.
+}
 
 // static
 v8::Local<v8::FunctionTemplate> BaseObject::GetConstructorTemplate(
@@ -124,7 +127,8 @@ template <int Field>
 void BaseObject::InternalFieldGet(
     v8::Local<v8::String> property,
     const v8::PropertyCallbackInfo<v8::Value>& info) {
-  info.GetReturnValue().Set(info.This()->GetInternalField(Field));
+  info.GetReturnValue().Set(
+      info.This()->GetInternalField(Field).As<v8::Value>());
 }
 
 template <int Field, bool (v8::Value::* typecheck)() const>

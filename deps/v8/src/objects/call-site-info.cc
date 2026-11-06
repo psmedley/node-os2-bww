@@ -198,19 +198,6 @@ Object CallSiteInfo::GetScriptSourceMappingURL() const {
   return ReadOnlyRoots(GetIsolate()).null_value();
 }
 
-// static
-Handle<String> CallSiteInfo::GetScriptHash(Handle<CallSiteInfo> info) {
-  Handle<Script> script;
-  Isolate* isolate = info->GetIsolate();
-  if (!GetScript(isolate, info).ToHandle(&script)) {
-    return isolate->factory()->empty_string();
-  }
-  if (script->HasValidSource()) {
-    return Script::GetScriptHash(isolate, script, /*forceForInspector:*/ false);
-  }
-  return isolate->factory()->empty_string();
-}
-
 namespace {
 
 MaybeHandle<String> FormatEvalOrigin(Isolate* isolate, Handle<Script> script) {
@@ -580,8 +567,7 @@ int CallSiteInfo::ComputeSourcePosition(Handle<CallSiteInfo> info, int offset) {
 #endif  // V8_ENABLE_WEBASSEMBLY
   Handle<SharedFunctionInfo> shared(info->GetSharedFunctionInfo(), isolate);
   SharedFunctionInfo::EnsureSourcePositionsAvailable(isolate, shared);
-  return AbstractCode::cast(info->code_object())
-      .SourcePosition(isolate, offset);
+  return AbstractCode::cast(info->code_object()).SourcePosition(offset);
 }
 
 base::Optional<Script> CallSiteInfo::GetScript() const {

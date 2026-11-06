@@ -96,3 +96,7 @@ class TestCase(testcase.D8TestCase):
     return webkit.OutProc(
         self.expected_outcomes,
         os.path.join(self.suite.root, self.path) + '-expected.txt')
+
+
+def GetSuite(*args, **kwargs):
+  return TestSuite(*args, **kwargs)

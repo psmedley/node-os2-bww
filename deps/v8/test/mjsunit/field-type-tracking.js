@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --allow-natives-syntax --track-field-types
-// Flags: --turbofan --no-always-turbofan
+// Flags: --allow-natives-syntax --nostress-opt --track-field-types
+// Flags: --opt --no-always-opt
 
 (function() {
   var o = { text: "Hello World!" };

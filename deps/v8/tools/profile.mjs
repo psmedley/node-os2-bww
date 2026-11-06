@@ -186,16 +186,15 @@ export class Script {
     (async () => {
       try {
         let sourceMapPayload;
-        const options = { timeout: 15 };
         try {
-          sourceMapPayload = await fetch(sourceMapURL, options);
+          sourceMapPayload = await fetch(sourceMapURL);
         } catch (e) {
           if (e instanceof TypeError && sourceMapFetchPrefix) {
             // Try again with fetch prefix.
             // TODO(leszeks): Remove the retry once the prefix is
             // configurable.
             sourceMapPayload =
-                await fetch(sourceMapFetchPrefix + sourceMapURL, options);
+                await fetch(sourceMapFetchPrefix + sourceMapURL);
           } else {
             throw e;
           }
@@ -351,8 +350,7 @@ export class Profile {
   static CodeState = {
     COMPILED: 0,
     IGNITION: 1,
-    SPARKPLUG: 2,
-    MAGLEV: 4,
+    BASELINE: 2,
     TURBOFAN: 5,
   }
 
@@ -361,7 +359,7 @@ export class Profile {
     GC: 1,
     PARSER: 2,
     BYTECODE_COMPILER: 3,
-    // TODO(cbruni): add SPARKPLUG_COMPILER
+    // TODO(cbruni): add BASELINE_COMPILER
     COMPILER: 4,
     OTHER: 5,
     EXTERNAL: 6,
@@ -383,9 +381,7 @@ export class Profile {
       case '~':
         return this.CodeState.IGNITION;
       case '^':
-        return this.CodeState.SPARKPLUG;
-      case '+':
-        return this.CodeState.MAGLEV;
+        return this.CodeState.BASELINE;
       case '*':
         return this.CodeState.TURBOFAN;
     }
@@ -397,10 +393,8 @@ export class Profile {
       return "Builtin";
     } else if (state === this.CodeState.IGNITION) {
       return "Unopt";
-    } else if (state === this.CodeState.SPARKPLUG) {
-      return "Sparkplug";
-    } else if (state === this.CodeState.MAGLEV) {
-      return "Maglev";
+    } else if (state === this.CodeState.BASELINE) {
+      return "Baseline";
     } else if (state === this.CodeState.TURBOFAN) {
       return "Opt";
     }
@@ -431,7 +425,7 @@ export class Profile {
 
   /**
    * Called whenever the specified operation has failed finding a function
-   * containing the specified address. Should be overridden by subclasses.
+   * containing the specified address. Should be overriden by subclasses.
    * See the Profile.Operation enum for the list of
    * possible operations.
    *
@@ -480,21 +474,6 @@ export class Profile {
   addCode(type, name, timestamp, start, size) {
     const entry = new DynamicCodeEntry(size, type, name);
     this.codeMap_.addCode(start, entry);
-    return entry;
-  }
-
-  /**
-   * Registers dynamic (JIT-compiled) code entry or entries that overlap with
-   * static entries (like builtins).
-   *
-   * @param {string} type Code entry type.
-   * @param {string} name Code entry name.
-   * @param {number} start Starting address.
-   * @param {number} size Code entry size.
-   */
-  addAnyCode(type, name, timestamp, start, size) {
-    const entry = new DynamicCodeEntry(size, type, name);
-    this.codeMap_.addAnyCode(start, entry);
     return entry;
   }
 
@@ -654,7 +633,7 @@ export class Profile {
    * Records a tick event. Stack must contain a sequence of
    * addresses starting with the program counter value.
    *
-   * @param {number[]} stack Stack sample.
+   * @param {Array<number>} stack Stack sample.
    */
   recordTick(time_ns, vmState, stack) {
     const {nameStack, entryStack} = this.resolveAndFilterFuncs_(stack);
@@ -668,7 +647,7 @@ export class Profile {
    * Translates addresses into function names and filters unneeded
    * functions.
    *
-   * @param {number[]} stack Stack sample.
+   * @param {Array<number>} stack Stack sample.
    */
   resolveAndFilterFuncs_(stack) {
     const nameStack = [];
@@ -958,7 +937,6 @@ class DynamicFuncCodeEntry extends CodeEntry {
 class FunctionEntry extends CodeEntry {
 
   // Contains the list of generated code for this function.
-  /** @type {Set<DynamicCodeEntry>} */
   _codeEntries = new Set();
 
   constructor(name) {
@@ -1022,7 +1000,7 @@ class CallTree {
   /**
    * Adds the specified call path, constructing nodes as necessary.
    *
-   * @param {string[]} path Call path.
+   * @param {Array<string>} path Call path.
    */
   addPath(path) {
     if (path.length == 0) return;
@@ -1230,7 +1208,7 @@ class CallTreeNode {
   /**
    * Tries to find a node with the specified path.
    *
-   * @param {string[]} labels The path.
+   * @param {Array<string>} labels The path.
    * @param {function(CallTreeNode)} opt_f Visitor function.
    */
   descendToChild(labels, opt_f) {

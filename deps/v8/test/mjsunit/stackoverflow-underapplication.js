@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --stack-size=100 --no-turbofan
+// Flags: --stack-size=100 --no-opt
 
 function f(
   x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x,

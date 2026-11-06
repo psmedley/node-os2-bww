@@ -16,7 +16,7 @@ namespace internal {
 
 constexpr auto CallInterfaceDescriptor::DefaultRegisterArray() {
   auto registers = RegisterArray(x0, x1, x2, x3, x4);
-  static_assert(registers.size() == kMaxBuiltinRegisterParams);
+  STATIC_ASSERT(registers.size() == kMaxBuiltinRegisterParams);
   return registers;
 }
 
@@ -228,7 +228,8 @@ constexpr auto ConstructStubDescriptor::registers() {
   // x3: new target
   // x1: target
   // x0: number of arguments
-  return RegisterArray(x1, x3, x0);
+  // x2: allocation site or undefined
+  return RegisterArray(x1, x3, x0, x2);
 }
 
 // static

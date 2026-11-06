@@ -3,7 +3,6 @@
 # found in the LICENSE file.
 
 from contextlib import contextmanager
-import logging
 import os
 import re
 import signal
@@ -12,9 +11,10 @@ import sys
 import threading
 import time
 
-from ..local.android import (Driver, CommandFailedException, TimeoutException)
+from ..local.android import (
+    android_driver, CommandFailedException, TimeoutException)
+from ..local import utils
 from ..objects import output
-from ..local.pool import AbortException
 
 BASE_DIR = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), '..' , '..', '..'))
@@ -30,6 +30,12 @@ def setup_testing():
   """
   signal.signal = lambda *_: None
 
+
+class AbortException(Exception):
+  """Indicates early abort on SIGINT, SIGTERM or internal hard timeout."""
+  pass
+
+
 @contextmanager
 def handle_sigterm(process, abort_fun, enabled):
   """Call`abort_fun` on sigterm and restore previous handler to prevent
@@ -43,22 +49,11 @@ def handle_sigterm(process, abort_fun, enabled):
   """
   # Variable to communicate with the signal handler.
   abort_occured = [False]
+  def handler(signum, frame):
+    abort_fun(process, abort_occured)
 
   if enabled:
-    # TODO(https://crbug.com/v8/13113): There is a race condition on
-    # signal handler registration. In rare cases, the SIGTERM for stopping
-    # a worker might be caught right after a long running process has been
-    # started (or logic that starts it isn't interrupted), but before the
-    # registration of the abort_fun. In this case, process.communicate will
-    # block until the process is done.
-    previous = signal.getsignal(signal.SIGTERM)
-    def handler(signum, frame):
-      abort_fun(process, abort_occured)
-      if previous and callable(previous):
-        # Call default signal handler. If this command is called from a worker
-        # process, its signal handler will gracefully stop processing.
-        previous(signum, frame)
-    signal.signal(signal.SIGTERM, handler)
+    previous = signal.signal(signal.SIGTERM, handler)
   try:
     yield
   finally:
@@ -157,10 +152,13 @@ class BaseCommand(object):
     started_as = self.to_string(relative=True)
     process_text = 'process %d started as:\n  %s\n' % (process.pid, started_as)
     try:
-      logging.warning('Attempting to kill %s', process_text)
+      print('Attempting to kill ' + process_text)
+      sys.stdout.flush()
       self._kill_process(process)
-    except OSError:
-      logging.exception('Unruly %s', process_text)
+    except OSError as e:
+      print(e)
+      print('Unruly ' + process_text)
+      sys.stdout.flush()
 
   def __str__(self):
     return self.to_string()
@@ -208,11 +206,6 @@ class PosixCommand(BaseCommand):
 
   def _kill_process(self, process):
     # Kill the whole process group (PID == GPID after setsid).
-    # First try a soft term to allow some feedback
-    os.killpg(process.pid, signal.SIGTERM)
-    # Give the process some time to cleanly terminate.
-    time.sleep(0.1)
-    # Forcefully kill processes.
     os.killpg(process.pid, signal.SIGKILL)
 
 
@@ -225,10 +218,11 @@ def taskkill_windows(process, verbose=False, force=True):
   )
   stdout, stderr = tk.communicate()
   if verbose:
-    logging.info('Taskkill results for %d', process.pid)
-    logging.info(stdout.decode('utf-8', errors='ignore'))
-    logging.info(stderr.decode('utf-8', errors='ignore'))
-    logging.info('Return code: %d', tk.returncode)
+    print('Taskkill results for %d' % process.pid)
+    print(stdout)
+    print(stderr)
+    print('Return code: %d' % tk.returncode)
+    sys.stdout.flush()
 
 
 class WindowsCommand(BaseCommand):
@@ -332,23 +326,19 @@ class AndroidCommand(BaseCommand):
         duration,
     )
 
+
 Command = None
-
-
-# Deprecated : use context.os_context
 def setup(target_os, device):
   """Set the Command class to the OS-specific version."""
   global Command
   if target_os == 'android':
-    AndroidCommand.driver = Driver.instance(device)
+    AndroidCommand.driver = android_driver(device)
     Command = AndroidCommand
   elif target_os == 'windows':
     Command = WindowsCommand
   else:
     Command = PosixCommand
 
-
-# Deprecated : use context.os_context
 def tear_down():
   """Clean up after using commands."""
   if Command == AndroidCommand:

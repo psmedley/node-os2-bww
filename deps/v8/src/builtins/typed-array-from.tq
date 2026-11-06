@@ -151,9 +151,7 @@ TypedArrayFrom(js-implicit context: NativeContext, receiver: JSAny)(
         ThrowRangeError(MessageTemplate::kInvalidTypedArrayLength, length);
       }
     } label IteratorNotCallable(_value: JSAny) deferred {
-      ThrowTypeError(
-          MessageTemplate::kFirstArgumentIteratorSymbolNonCallable,
-          kBuiltinNameFrom);
+      ThrowTypeError(MessageTemplate::kIteratorSymbolNonCallable);
     }
 
     const finalLengthNum = Convert<Number>(finalLength);

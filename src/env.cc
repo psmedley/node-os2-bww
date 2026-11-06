@@ -39,7 +39,6 @@ using v8::EscapableHandleScope;
 using v8::Function;
 using v8::FunctionTemplate;
 using v8::HandleScope;
-using v8::HeapProfiler;
 using v8::HeapSpaceStatistics;
 using v8::Integer;
 using v8::Isolate;
@@ -169,15 +168,13 @@ bool AsyncHooks::pop_async_context(double async_id) {
 }
 
 void AsyncHooks::clear_async_id_stack() {
-  if (env()->can_call_into_js()) {
+  if (!js_execution_async_resources_.IsEmpty() && env()->can_call_into_js()) {
     Isolate* isolate = env()->isolate();
     HandleScope handle_scope(isolate);
-    if (!js_execution_async_resources_.IsEmpty()) {
-      USE(PersistentToLocal::Strong(js_execution_async_resources_)
-              ->Set(env()->context(),
-                    env()->length_string(),
-                    Integer::NewFromUnsigned(isolate, 0)));
-    }
+    USE(PersistentToLocal::Strong(js_execution_async_resources_)
+            ->Set(env()->context(),
+                  env()->length_string(),
+                  Integer::NewFromUnsigned(isolate, 0)));
   }
 
   native_execution_async_resources_.clear();
@@ -314,6 +311,7 @@ IsolateDataSerializeInfo IsolateData::Serialize(SnapshotCreator* creator) {
     info.primitive_values.push_back(creator->AddData(async_wrap_provider(i)));
 
   uint32_t id = 0;
+#define VM(PropertyName) V(PropertyName##_binding, FunctionTemplate)
 #define V(PropertyName, TypeName)                                              \
   do {                                                                         \
     Local<TypeName> field = PropertyName();                                    \
@@ -324,6 +322,7 @@ IsolateDataSerializeInfo IsolateData::Serialize(SnapshotCreator* creator) {
     id++;                                                                      \
   } while (0);
   PER_ISOLATE_TEMPLATE_PROPERTIES(V)
+  NODE_BINDINGS_WITH_PER_ISOLATE_INIT(VM)
 #undef V
 
   return info;
@@ -332,6 +331,11 @@ IsolateDataSerializeInfo IsolateData::Serialize(SnapshotCreator* creator) {
 void IsolateData::DeserializeProperties(const IsolateDataSerializeInfo* info) {
   size_t i = 0;
   HandleScope handle_scope(isolate_);
+
+  if (per_process::enabled_debug_list.enabled(DebugCategory::MKSNAPSHOT)) {
+    fprintf(stderr, "deserializing IsolateDataSerializeInfo...\n");
+    std::cerr << *info << "\n";
+  }
 
 #define VP(PropertyName, StringValue) V(Private, PropertyName)
 #define VY(PropertyName, StringValue) V(Symbol, PropertyName)
@@ -368,6 +372,7 @@ void IsolateData::DeserializeProperties(const IsolateDataSerializeInfo* info) {
   const std::vector<PropInfo>& values = info->template_values;
   i = 0;  // index to the array
   uint32_t id = 0;
+#define VM(PropertyName) V(PropertyName##_binding, FunctionTemplate)
 #define V(PropertyName, TypeName)                                              \
   do {                                                                         \
     if (values.size() > i && id == values[i].id) {                             \
@@ -388,6 +393,7 @@ void IsolateData::DeserializeProperties(const IsolateDataSerializeInfo* info) {
   } while (0);
 
   PER_ISOLATE_TEMPLATE_PROPERTIES(V);
+  NODE_BINDINGS_WITH_PER_ISOLATE_INIT(VM);
 #undef V
 }
 
@@ -454,12 +460,12 @@ void IsolateData::CreateProperties() {
   NODE_ASYNC_PROVIDER_TYPES(V)
 #undef V
 
-  // TODO(legendecas): eagerly create per isolate templates.
   Local<FunctionTemplate> templ = FunctionTemplate::New(isolate());
   templ->InstanceTemplate()->SetInternalFieldCount(
       BaseObject::kInternalFieldCount);
   templ->Inherit(BaseObject::GetConstructorTemplate(this));
   set_binding_data_ctor_template(templ);
+  binding::CreateInternalBindingTemplates(this);
 
   contextify::ContextifyContext::InitializeGlobalTemplates(this);
 }
@@ -540,7 +546,8 @@ void Environment::AssignToContext(Local<v8::Context> context,
   context->SetAlignedPointerInEmbedderData(ContextEmbedderIndex::kRealm, realm);
   // Used to retrieve bindings
   context->SetAlignedPointerInEmbedderData(
-      ContextEmbedderIndex::kBindingListIndex, &(this->bindings_));
+      ContextEmbedderIndex::kBindingDataStoreIndex,
+      realm != nullptr ? realm->binding_data_store() : nullptr);
 
   // ContextifyContexts will update this to a pointer to the native object.
   context->SetAlignedPointerInEmbedderData(
@@ -619,7 +626,7 @@ std::string GetExecPath(const std::vector<std::string>& argv) {
   std::string exec_path;
   if (uv_exepath(exec_path_buf, &exec_path_len) == 0) {
     exec_path = std::string(exec_path_buf, exec_path_len);
-  } else {
+  } else if (argv.size() > 0) {
     exec_path = argv[0];
   }
 
@@ -650,6 +657,7 @@ Environment::Environment(IsolateData* isolate_data,
       isolate_data_(isolate_data),
       async_hooks_(isolate, MAYBE_FIELD_PTR(env_info, async_hooks)),
       immediate_info_(isolate, MAYBE_FIELD_PTR(env_info, immediate_info)),
+      timeout_info_(isolate_, 1, MAYBE_FIELD_PTR(env_info, timeout_info)),
       tick_info_(isolate, MAYBE_FIELD_PTR(env_info, tick_info)),
       timer_base_(uv_now(isolate_data->event_loop())),
       exec_argv_(exec_args),
@@ -663,12 +671,20 @@ Environment::Environment(IsolateData* isolate_data,
       stream_base_state_(isolate_,
                          StreamBase::kNumStreamBaseStateFields,
                          MAYBE_FIELD_PTR(env_info, stream_base_state)),
-      time_origin_(PERFORMANCE_NOW()),
-      time_origin_timestamp_(GetCurrentTimeInMicroseconds()),
+      environment_start_time_(PERFORMANCE_NOW()),
       flags_(flags),
       thread_id_(thread_id.id == static_cast<uint64_t>(-1)
                      ? AllocateEnvironmentThreadId().id
                      : thread_id.id) {
+#ifdef NODE_V8_SHARED_RO_HEAP
+  if (!is_main_thread()) {
+    CHECK_NOT_NULL(isolate_data->worker_context());
+    // TODO(addaleax): Adjust for the embedder API snapshot support changes
+    builtin_loader()->CopySourceAndCodeCacheReferenceFrom(
+        isolate_data->worker_context()->env()->builtin_loader());
+  }
+#endif
+
   // We'll be creating new objects so make sure we've entered the context.
   HandleScope handle_scope(isolate);
 
@@ -769,7 +785,7 @@ void Environment::InitializeMainContext(Local<Context> context,
   set_exiting(false);
 
   performance_state_->Mark(performance::NODE_PERFORMANCE_MILESTONE_ENVIRONMENT,
-                           time_origin_);
+                           environment_start_time_);
   performance_state_->Mark(performance::NODE_PERFORMANCE_MILESTONE_NODE_START,
                            per_process::node_start_time);
 
@@ -903,11 +919,15 @@ void Environment::InitializeLibuv() {
   StartProfilerIdleNotifier();
 }
 
-void Environment::ExitEnv() {
-  set_can_call_into_js(false);
+void Environment::ExitEnv(StopFlags::Flags flags) {
+  // Should not access non-thread-safe methods here.
   set_stopping(true);
-  isolate_->TerminateExecution();
-  SetImmediateThreadsafe([](Environment* env) { uv_stop(env->event_loop()); });
+  if ((flags & StopFlags::kDoNotTerminateIsolate) == 0)
+    isolate_->TerminateExecution();
+  SetImmediateThreadsafe([](Environment* env) {
+    env->set_can_call_into_js(false);
+    uv_stop(env->event_loop());
+  });
 }
 
 void Environment::RegisterHandleCleanups() {
@@ -1007,7 +1027,6 @@ MaybeLocal<Value> Environment::RunSnapshotDeserializeMain() const {
 void Environment::RunCleanup() {
   started_cleanup_ = true;
   TRACE_EVENT0(TRACING_CATEGORY_NODE1(environment), "RunCleanup");
-  bindings_.clear();
   // Only BaseObject's cleanups are registered as per-realm cleanup hooks now.
   // Defer the BaseObject cleanup after handles are cleaned up.
   CleanupHandles();
@@ -1512,14 +1531,14 @@ void AsyncHooks::FailWithCorruptedAsyncStack(double expected_async_id) {
           expected_async_id);
   DumpBacktrace(stderr);
   fflush(stderr);
-  // TODO(joyeecheung): should this exit code be more specific?
-  if (!env()->abort_on_uncaught_exception()) Exit(ExitCode::kGenericUserError);
+  if (!env()->abort_on_uncaught_exception())
+    exit(1);
   fprintf(stderr, "\n");
   fflush(stderr);
   ABORT_NO_BACKTRACE();
 }
 
-void Environment::Exit(ExitCode exit_code) {
+void Environment::Exit(int exit_code) {
   if (options()->trace_exit) {
     HandleScope handle_scope(isolate());
     Isolate::DisallowJavascriptExecutionScope disallow_js(
@@ -1532,9 +1551,8 @@ void Environment::Exit(ExitCode exit_code) {
               uv_os_getpid(), thread_id());
     }
 
-    fprintf(stderr,
-            "WARNING: Exited the environment with code %d\n",
-            static_cast<int>(exit_code));
+    fprintf(
+        stderr, "WARNING: Exited the environment with code %d\n", exit_code);
     PrintStackTrace(isolate(),
                     StackTrace::CurrentStackTrace(
                         isolate(), stack_trace_limit(), StackTrace::kDetailed));
@@ -1548,7 +1566,7 @@ void Environment::stop_sub_worker_contexts() {
   while (!sub_worker_contexts_.empty()) {
     Worker* w = *sub_worker_contexts_.begin();
     remove_sub_worker_context(w);
-    w->Exit(ExitCode::kGenericUserError);
+    w->Exit(1);
     w->JoinThread();
   }
 }
@@ -1580,18 +1598,6 @@ void Environment::PrintInfoForSnapshotIfDebug() {
   if (enabled_debug_list()->enabled(DebugCategory::MKSNAPSHOT)) {
     fprintf(stderr, "At the exit of the Environment:\n");
     principal_realm()->PrintInfoForSnapshot();
-    fprintf(stderr, "\nBuiltins without cache:\n");
-    for (const auto& s : builtins_without_cache) {
-      fprintf(stderr, "%s\n", s.c_str());
-    }
-    fprintf(stderr, "\nBuiltins with cache:\n");
-    for (const auto& s : builtins_with_cache) {
-      fprintf(stderr, "%s\n", s.c_str());
-    }
-    fprintf(stderr, "\nStatic bindings (need to be registered):\n");
-    for (const auto mod : internal_bindings) {
-      fprintf(stderr, "%s:%s\n", mod->nm_filename, mod->nm_modname);
-    }
   }
 }
 
@@ -1599,13 +1605,9 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   EnvSerializeInfo info;
   Local<Context> ctx = context();
 
-  // Currently all modules are compiled without cache in builtin snapshot
-  // builder.
-  info.builtins = std::vector<std::string>(builtins_without_cache.begin(),
-                                           builtins_without_cache.end());
-
   info.async_hooks = async_hooks_.Serialize(ctx, creator);
   info.immediate_info = immediate_info_.Serialize(ctx, creator);
+  info.timeout_info = timeout_info_.Serialize(ctx, creator);
   info.tick_info = tick_info_.Serialize(ctx, creator);
   info.performance_state = performance_state_->Serialize(ctx, creator);
   info.exiting = exiting_.Serialize(ctx, creator);
@@ -1647,11 +1649,16 @@ void Environment::RunDeserializeRequests() {
 void Environment::DeserializeProperties(const EnvSerializeInfo* info) {
   Local<Context> ctx = context();
 
+  if (enabled_debug_list_.enabled(DebugCategory::MKSNAPSHOT)) {
+    fprintf(stderr, "deserializing EnvSerializeInfo...\n");
+    std::cerr << *info << "\n";
+  }
+
   RunDeserializeRequests();
 
-  builtins_in_snapshot = info->builtins;
   async_hooks_.Deserialize(ctx);
   immediate_info_.Deserialize(ctx);
+  timeout_info_.Deserialize(ctx);
   tick_info_.Deserialize(ctx);
   performance_state_->Deserialize(ctx);
   exiting_.Deserialize(ctx);
@@ -1659,11 +1666,6 @@ void Environment::DeserializeProperties(const EnvSerializeInfo* info) {
   should_abort_on_uncaught_toggle_.Deserialize(ctx);
 
   principal_realm_->DeserializeProperties(&info->principal_realm);
-
-  if (enabled_debug_list_.enabled(DebugCategory::MKSNAPSHOT)) {
-    fprintf(stderr, "deserializing...\n");
-    std::cerr << *info << "\n";
-  }
 }
 
 uint64_t GuessMemoryAvailableToTheProcess() {
@@ -1791,10 +1793,7 @@ size_t Environment::NearHeapLimitCallback(void* data,
 
   Debug(env, DebugCategory::DIAGNOSTICS, "Start generating %s...\n", *name);
 
-  HeapProfiler::HeapSnapshotOptions options;
-  options.numerics_mode = HeapProfiler::NumericsMode::kExposeNumericValues;
-  options.snapshot_mode = HeapProfiler::HeapSnapshotMode::kExposeInternals;
-  heap::WriteSnapshot(env, filename.c_str(), options);
+  heap::WriteSnapshot(env, filename.c_str());
   env->heap_limit_snapshot_taken_ += 1;
 
   Debug(env,
@@ -1840,8 +1839,6 @@ void Environment::MemoryInfo(MemoryTracker* tracker) const {
   // Iteratable STLs have their own sizes subtracted from the parent
   // by default.
   tracker->TrackField("isolate_data", isolate_data_);
-  tracker->TrackField("builtins_with_cache", builtins_with_cache);
-  tracker->TrackField("builtins_without_cache", builtins_without_cache);
   tracker->TrackField("destroy_async_id_list", destroy_async_id_list_);
   tracker->TrackField("exec_argv", exec_argv_);
   tracker->TrackField("exiting", exiting_);
@@ -1851,6 +1848,7 @@ void Environment::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("cleanup_queue", cleanup_queue_);
   tracker->TrackField("async_hooks", async_hooks_);
   tracker->TrackField("immediate_info", immediate_info_);
+  tracker->TrackField("timeout_info", timeout_info_);
   tracker->TrackField("tick_info", tick_info_);
   tracker->TrackField("principal_realm", principal_realm_);
 

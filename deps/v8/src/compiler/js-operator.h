@@ -13,7 +13,8 @@
 #include "src/compiler/node-properties.h"
 #include "src/compiler/node.h"
 #include "src/compiler/opcodes.h"
-#include "src/objects/feedback-cell.h"
+#include "src/handles/maybe-handles.h"
+#include "src/objects/type-hints.h"
 #include "src/runtime/runtime.h"
 
 namespace v8 {
@@ -60,6 +61,7 @@ class JSOperator final : public AllStatic {
         return false;
     }
 #undef CASE
+    return false;
   }
 
   static constexpr bool IsBinaryWithFeedback(Operator::Opcode opcode) {
@@ -72,6 +74,7 @@ class JSOperator final : public AllStatic {
         return false;
     }
 #undef CASE
+    return false;
   }
 };
 
@@ -92,13 +95,12 @@ class CallFrequency final {
   }
 
   bool operator==(CallFrequency const& that) const {
-    return base::bit_cast<uint32_t>(this->value_) ==
-           base::bit_cast<uint32_t>(that.value_);
+    return bit_cast<uint32_t>(this->value_) == bit_cast<uint32_t>(that.value_);
   }
   bool operator!=(CallFrequency const& that) const { return !(*this == that); }
 
   friend size_t hash_value(CallFrequency const& f) {
-    return base::bit_cast<uint32_t>(f.value_);
+    return bit_cast<uint32_t>(f.value_);
   }
 
   static constexpr float kNoFeedbackCallFrequency = -1;
@@ -1040,8 +1042,6 @@ class V8_EXPORT_PRIVATE JSOperatorBuilder final
 
   const Operator* GetSuperConstructor();
 
-  const Operator* FindNonDefaultConstructorOrConstruct();
-
   const Operator* CreateGeneratorObject();
 
   const Operator* LoadGlobal(const NameRef& name,
@@ -1368,8 +1368,8 @@ class JSCallOrConstructNode : public JSNodeWrapperBase {
   static constexpr int kExtraInputCount = kTargetInputCount +
                                           kReceiverOrNewTargetInputCount +
                                           kFeedbackVectorInputCount;
-  static_assert(kExtraInputCount == CallParameters::kExtraCallInputCount);
-  static_assert(kExtraInputCount ==
+  STATIC_ASSERT(kExtraInputCount == CallParameters::kExtraCallInputCount);
+  STATIC_ASSERT(kExtraInputCount ==
                 ConstructParameters::kExtraConstructInputCount);
 
   // Just for static asserts for spots that rely on node layout.
@@ -1412,7 +1412,7 @@ class JSCallOrConstructNode : public JSNodeWrapperBase {
   virtual int ArgumentCount() const = 0;
 
   static constexpr int FeedbackVectorIndexForArgc(int argc) {
-    static_assert(kFeedbackVectorIsLastInput);
+    STATIC_ASSERT(kFeedbackVectorIsLastInput);
     return ArgumentIndex(argc - 1) + 1;
   }
   int FeedbackVectorIndex() const {
@@ -1466,7 +1466,7 @@ class JSCallNodeBase final : public JSCallOrConstructNode {
 #undef INPUTS
 
   static constexpr int kReceiverInputCount = 1;
-  static_assert(kReceiverInputCount ==
+  STATIC_ASSERT(kReceiverInputCount ==
                 JSCallOrConstructNode::kReceiverOrNewTargetInputCount);
 
   int ArgumentCount() const override {
@@ -1500,7 +1500,7 @@ class JSWasmCallNode final : public JSCallOrConstructNode {
 #undef INPUTS
 
   static constexpr int kReceiverInputCount = 1;
-  static_assert(kReceiverInputCount ==
+  STATIC_ASSERT(kReceiverInputCount ==
                 JSCallOrConstructNode::kReceiverOrNewTargetInputCount);
 
   int ArgumentCount() const override {
@@ -1532,7 +1532,7 @@ class JSConstructNodeBase final : public JSCallOrConstructNode {
 #undef INPUTS
 
   static constexpr int kNewTargetInputCount = 1;
-  static_assert(kNewTargetInputCount ==
+  STATIC_ASSERT(kNewTargetInputCount ==
                 JSCallOrConstructNode::kReceiverOrNewTargetInputCount);
 
   int ArgumentCount() const {
@@ -1755,22 +1755,6 @@ class JSForInNextNode final : public JSNodeWrapperBase {
   V(CacheType, cache_type, 2, Object)   \
   V(Index, index, 3, Smi)               \
   V(FeedbackVector, feedback_vector, 4, HeapObject)
-  INPUTS(DEFINE_INPUT_ACCESSORS)
-#undef INPUTS
-};
-
-class JSFindNonDefaultConstructorOrConstructNode final
-    : public JSNodeWrapperBase {
- public:
-  explicit constexpr JSFindNonDefaultConstructorOrConstructNode(Node* node)
-      : JSNodeWrapperBase(node) {
-    DCHECK_EQ(IrOpcode::kJSFindNonDefaultConstructorOrConstruct,
-              node->opcode());
-  }
-
-#define INPUTS(V)                           \
-  V(ThisFunction, this_function, 0, Object) \
-  V(NewTarget, new_target, 1, Object)
   INPUTS(DEFINE_INPUT_ACCESSORS)
 #undef INPUTS
 };

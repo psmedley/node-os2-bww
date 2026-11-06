@@ -20,6 +20,7 @@
 #include "src/utils/utils.h"
 #include "src/wasm/decoder.h"
 #include "src/wasm/function-body-decoder-impl.h"
+#include "src/wasm/function-body-decoder.h"
 #include "src/wasm/memory-tracing.h"
 #include "src/wasm/module-compiler.h"
 #include "src/wasm/wasm-arguments.h"
@@ -41,9 +42,9 @@ using base::ReadUnalignedValue;
 using base::WriteLittleEndianValue;
 using base::WriteUnalignedValue;
 
-#define TRACE(...)                                            \
-  do {                                                        \
-    if (v8_flags.trace_wasm_interpreter) PrintF(__VA_ARGS__); \
+#define TRACE(...)                                        \
+  do {                                                    \
+    if (FLAG_trace_wasm_interpreter) PrintF(__VA_ARGS__); \
   } while (false)
 
 #if V8_TARGET_BIG_ENDIAN
@@ -749,7 +750,7 @@ class SideTable : public ZoneObject {
             max_exception_arity, static_cast<int>(tag.sig->parameter_count()));
       }
     }
-    for (BytecodeIterator i(code->start, code->end, &code->locals, zone);
+    for (BytecodeIterator i(code->start, code->end, &code->locals);
          i.has_next(); i.next()) {
       WasmOpcode opcode = i.current();
       int32_t exceptional_stack_height = 0;
@@ -1119,8 +1120,8 @@ class CodeMap {
 
   void AddFunction(const WasmFunction* function, const byte* code_start,
                    const byte* code_end) {
-    InterpreterCode code = {function, BodyLocalDecls{}, code_start, code_end,
-                            nullptr};
+    InterpreterCode code = {function, BodyLocalDecls(zone_), code_start,
+                            code_end, nullptr};
 
     DCHECK_EQ(interpreter_code_.size(), function->func_index);
     interpreter_code_.push_back(code);
@@ -1334,7 +1335,7 @@ class WasmInterpreterInternals {
     // Limit of parameters.
     sp_t plimit() { return sp + code->function->sig->parameter_count(); }
     // Limit of locals.
-    sp_t llimit() { return plimit() + code->locals.num_locals; }
+    sp_t llimit() { return plimit() + code->locals.type_list.size(); }
 
     Handle<FixedArray> caught_exception_stack;
   };
@@ -1400,14 +1401,10 @@ class WasmInterpreterInternals {
     CommitPc(pc);
   }
 
-  void DoTrap(MessageTemplate message, pc_t pc) {
-    DoTrap(WasmOpcodes::MessageIdToTrapReason(message), pc);
-  }
-
   // Check if there is room for a function's activation.
   void EnsureStackSpaceForCall(InterpreterCode* code) {
     EnsureStackSpace(code->side_table->max_stack_height_ +
-                     code->locals.num_locals);
+                     code->locals.type_list.size());
     DCHECK_GE(StackHeight(), code->function->sig->parameter_count());
   }
 
@@ -1430,8 +1427,7 @@ class WasmInterpreterInternals {
   }
 
   pc_t InitLocals(InterpreterCode* code) {
-    for (ValueType p :
-         base::VectorOf(code->locals.local_types, code->locals.num_locals)) {
+    for (ValueType p : code->locals.type_list) {
       WasmValue val;
       switch (p.kind()) {
 #define CASE_TYPE(valuetype, ctype) \
@@ -1440,7 +1436,7 @@ class WasmInterpreterInternals {
     break;
         FOREACH_WASMVALUE_CTYPES(CASE_TYPE)
 #undef CASE_TYPE
-        case kRefNull: {
+        case kOptRef: {
           val = WasmValue(isolate_->factory()->null_value(), p);
           break;
         }
@@ -1703,7 +1699,7 @@ class WasmInterpreterInternals {
     Push(result);
     *len += imm.length;
 
-    if (v8_flags.trace_wasm_memory) {
+    if (FLAG_trace_wasm_memory) {
       MemoryTracingInfo info(imm.offset + index, false, rep);
       TraceMemoryOperation({}, &info, code->function->func_index,
                            static_cast<int>(pc),
@@ -1735,7 +1731,7 @@ class WasmInterpreterInternals {
     WriteLittleEndianValue<mtype>(addr, converter<mtype, ctype>{}(val));
     *len += imm.length;
 
-    if (v8_flags.trace_wasm_memory) {
+    if (FLAG_trace_wasm_memory) {
       MemoryTracingInfo info(imm.offset + index, true, rep);
       TraceMemoryOperation({}, &info, code->function->func_index,
                            static_cast<int>(pc),
@@ -1836,15 +1832,15 @@ class WasmInterpreterInternals {
         uint64_t dst = ToMemType(Pop());
         Address dst_addr;
         uint64_t src_max =
-            instance_object_->data_segment_sizes().get(imm.data_segment.index);
+            instance_object_->data_segment_sizes()[imm.data_segment.index];
         if (!BoundsCheckMemRange(dst, &size, &dst_addr) ||
             !base::IsInBounds(src, size, src_max)) {
           DoTrap(kTrapMemOutOfBounds, pc);
           return false;
         }
-        Address src_addr = instance_object_->data_segment_starts().get(
-                               imm.data_segment.index) +
-                           src;
+        Address src_addr =
+            instance_object_->data_segment_starts()[imm.data_segment.index] +
+            src;
         std::memmove(reinterpret_cast<void*>(dst_addr),
                      reinterpret_cast<void*>(src_addr), size);
         return true;
@@ -1856,7 +1852,7 @@ class WasmInterpreterInternals {
         // validation.
         DCHECK_LT(imm.index, module()->num_declared_data_segments);
         *len += imm.length;
-        instance_object_->data_segment_sizes().set(imm.index, 0);
+        instance_object_->data_segment_sizes()[imm.index] = 0;
         return true;
       }
       case kExprMemoryCopy: {
@@ -1901,22 +1897,17 @@ class WasmInterpreterInternals {
         auto src = Pop().to<uint32_t>();
         auto dst = Pop().to<uint32_t>();
         HandleScope scope(isolate_);  // Avoid leaking handles.
-        base::Optional<MessageTemplate> opt_error =
-            WasmInstanceObject::InitTableEntries(
-                instance_object_->GetIsolate(), instance_object_,
-                imm.table.index, imm.element_segment.index, dst, src, size);
-        if (opt_error.has_value()) {
-          DoTrap(opt_error.value(), pc);
-          return false;
-        }
-
-        return true;
+        bool ok = WasmInstanceObject::InitTableEntries(
+            instance_object_->GetIsolate(), instance_object_, imm.table.index,
+            imm.element_segment.index, dst, src, size);
+        if (!ok) DoTrap(kTrapTableOutOfBounds, pc);
+        return ok;
       }
       case kExprElemDrop: {
         IndexImmediate<Decoder::kNoValidation> imm(decoder, code->at(pc + *len),
                                                    "element segment index");
         *len += imm.length;
-        instance_object_->dropped_elem_segments().set(imm.index, 1);
+        instance_object_->dropped_elem_segments()[imm.index] = 1;
         return true;
       }
       case kExprTableCopy: {
@@ -2403,8 +2394,6 @@ class WasmInterpreterInternals {
                  RoundingAverageUnsigned<uint16_t>(a, b))
       BINOP_CASE(I16x8Q15MulRSatS, i16x8, int8, 8,
                  SaturateRoundingQMul<int16_t>(a, b))
-      BINOP_CASE(I16x8RelaxedQ15MulRS, i16x8, int8, 8,
-                 SaturateRoundingQMul<int16_t>(a, b))
       BINOP_CASE(I8x16Add, i8x16, int16, 16, base::AddWithWraparound(a, b))
       BINOP_CASE(I8x16Sub, i8x16, int16, 16, base::SubWithWraparound(a, b))
       BINOP_CASE(I8x16MinS, i8x16, int16, 16, a < b ? a : b)
@@ -2448,6 +2437,8 @@ class WasmInterpreterInternals {
       UNOP_CASE(F32x4Abs, f32x4, float4, 4, std::abs(a))
       UNOP_CASE(F32x4Neg, f32x4, float4, 4, -a)
       UNOP_CASE(F32x4Sqrt, f32x4, float4, 4, std::sqrt(a))
+      UNOP_CASE(F32x4RecipApprox, f32x4, float4, 4, base::Recip(a))
+      UNOP_CASE(F32x4RecipSqrtApprox, f32x4, float4, 4, base::RecipSqrt(a))
       UNOP_CASE(F32x4Ceil, f32x4, float4, 4,
                 (AixFpOpWorkaround<float, &ceilf>(a)))
       UNOP_CASE(F32x4Floor, f32x4, float4, 4,
@@ -2791,39 +2782,6 @@ class WasmInterpreterInternals {
         *len += 16;
         return true;
       }
-      case kExprI16x8DotI8x16I7x16S: {
-        int16 v2 = Pop().to_s128().to_i8x16();
-        int16 v1 = Pop().to_s128().to_i8x16();
-        int8 res;
-        for (size_t i = 0; i < 8; i++) {
-          int16_t lo = (v1.val[LANE(i * 2, v1)] * v2.val[LANE(i * 2, v2)]);
-          int16_t hi =
-              (v1.val[LANE(i * 2 + 1, v1)] * v2.val[LANE(i * 2 + 1, v2)]);
-          res.val[LANE(i, res)] = base::AddWithWraparound(lo, hi);
-        }
-        Push(WasmValue(Simd128(res)));
-        return true;
-      }
-      case kExprI32x4DotI8x16I7x16AddS: {
-        int4 v3 = Pop().to_s128().to_i32x4();
-        int16 v2 = Pop().to_s128().to_i8x16();
-        int16 v1 = Pop().to_s128().to_i8x16();
-        int4 res;
-        for (size_t i = 0; i < 4; i++) {
-          int32_t a = (v1.val[LANE(i * 4, v1)] * v2.val[LANE(i * 4, v2)]);
-          int32_t b =
-              (v1.val[LANE(i * 4 + 1, v1)] * v2.val[LANE(i * 4 + 1, v2)]);
-          int32_t c =
-              (v1.val[LANE(i * 4 + 2, v1)] * v2.val[LANE(i * 4 + 2, v2)]);
-          int32_t d =
-              (v1.val[LANE(i * 4 + 3, v1)] * v2.val[LANE(i * 4 + 3, v2)]);
-          int32_t acc = v3.val[LANE(i, v3)];
-          // a + b + c + d should not wrap
-          res.val[LANE(i, res)] = base::AddWithWraparound(a + b + c + d, acc);
-        }
-        Push(WasmValue(Simd128(res)));
-        return true;
-      }
       case kExprI8x16RelaxedSwizzle:
       case kExprI8x16Swizzle: {
         int16 v2 = Pop().to_s128().to_i8x16();
@@ -3130,9 +3088,9 @@ class WasmInterpreterInternals {
                     pc_t* limit) V8_WARN_UNUSED_RESULT {
     // The goal of this stack check is not to prevent actual stack overflows,
     // but to simulate stack overflows during the execution of compiled code.
-    // That is why this function uses v8_flags.stack_size, even though the value
+    // That is why this function uses FLAG_stack_size, even though the value
     // stack actually lies in zone memory.
-    const size_t stack_size_limit = v8_flags.stack_size * KB;
+    const size_t stack_size_limit = FLAG_stack_size * KB;
     // Sum up the value stack size and the control stack size.
     const size_t current_stack_size = (sp_ - stack_.get()) * sizeof(*sp_) +
                                       frames_.size() * sizeof(frames_[0]);
@@ -3205,7 +3163,7 @@ class WasmInterpreterInternals {
           break;
         }
         case kRef:
-        case kRefNull:
+        case kOptRef:
         case kRtt:
           encoded_values->set(encoded_index++, *value.to_ref());
           break;
@@ -3292,7 +3250,7 @@ class WasmInterpreterInternals {
           break;
         }
         case kRef:
-        case kRefNull:
+        case kOptRef:
         case kRtt: {
           Handle<Object> ref(encoded_values->get(encoded_index++), isolate_);
           value = WasmValue(ref, sig->GetParam(i));
@@ -3314,7 +3272,8 @@ class WasmInterpreterInternals {
     DCHECK(!frames_.empty());
     // There must be enough space on the stack to hold the arguments, locals,
     // and the value stack.
-    DCHECK_LE(code->function->sig->parameter_count() + code->locals.num_locals +
+    DCHECK_LE(code->function->sig->parameter_count() +
+                  code->locals.type_list.size() +
                   code->side_table->max_stack_height_,
               stack_limit_ - stack_.get() - frames_.back().sp);
     // Seal the surrounding {HandleScope} to ensure that all cases within the
@@ -3519,7 +3478,7 @@ class WasmInterpreterInternals {
               WasmFeatures::All(), &decoder, code->at(pc + 1), module());
           len = 1 + imm.length;
           Push(WasmValue(isolate_->factory()->null_value(),
-                         ValueType::RefNull(imm.type)));
+                         ValueType::Ref(imm.type, kNullable)));
           break;
         }
         case kExprRefFunc: {
@@ -3667,7 +3626,8 @@ class WasmInterpreterInternals {
             FOREACH_WASMVALUE_CTYPES(CASE_TYPE)
 #undef CASE_TYPE
             case kRef:
-            case kRefNull: {
+            case kOptRef:
+            case kRtt: {
               // TODO(7748): Type checks or DCHECKs for ref types?
               HandleScope handle_scope(isolate_);  // Avoid leaking handles.
               Handle<FixedArray> global_buffer;    // The buffer of the global.
@@ -3679,7 +3639,6 @@ class WasmInterpreterInternals {
               global_buffer->set(global_index, *ref);
               break;
             }
-            case kRtt:
             case kI8:
             case kI16:
             case kVoid:
@@ -4038,7 +3997,7 @@ class WasmInterpreterInternals {
 
   void TraceValueStack() {
 #ifdef DEBUG
-    if (!v8_flags.trace_wasm_interpreter) return;
+    if (!FLAG_trace_wasm_interpreter) return;
     HandleScope handle_scope(isolate_);  // Avoid leaking handles.
     Frame* top = frames_.size() > 0 ? &frames_.back() : nullptr;
     sp_t sp = top ? top->sp : 0;
@@ -4077,7 +4036,7 @@ class WasmInterpreterInternals {
         case kVoid:
           PrintF("void");
           break;
-        case kRefNull:
+        case kOptRef:
           if (val.to_ref()->IsNull()) {
             PrintF("ref:null");
             break;
@@ -4101,8 +4060,9 @@ class WasmInterpreterInternals {
   CallResult CallIndirectFunction(uint32_t table_index, uint32_t entry_index,
                                   uint32_t sig_index) {
     HandleScope handle_scope(isolate_);  // Avoid leaking handles.
-    uint32_t expected_sig_id;
-    expected_sig_id = module()->isorecursive_canonical_type_ids[sig_index];
+    uint32_t expected_sig_id = module()->canonicalized_type_ids[sig_index];
+    DCHECK_EQ(expected_sig_id,
+              module()->signature_map.Find(*module()->signature(sig_index)));
 
     Handle<WasmIndirectFunctionTable> table =
         instance_object_->GetIndirectFunctionTable(isolate_, table_index);
@@ -4239,10 +4199,11 @@ ControlTransferMap WasmInterpreter::ComputeControlTransfersForTesting(
                         0,       // func_index
                         0,       // sig_index
                         {0, 0},  // code
+                        0,       // feedback slots
                         false,   // imported
                         false,   // exported
                         false};  // declared
-  InterpreterCode code{&function, BodyLocalDecls{}, start, end, nullptr};
+  InterpreterCode code{&function, BodyLocalDecls(zone), start, end, nullptr};
 
   // Now compute and return the control transfers.
   SideTable side_table(zone, module, &code);

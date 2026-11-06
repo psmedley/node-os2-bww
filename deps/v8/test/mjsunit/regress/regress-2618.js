@@ -25,17 +25,17 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --use-osr --allow-natives-syntax --turbofan
-// Flags: --no-always-turbofan
+// Flags: --use-osr --allow-natives-syntax --opt
+// Flags: --no-always-opt
 
-// Can't OSR with always-turbofan or in Lite mode.
+// Can't OSR with always-opt or in Lite mode.
 if (isNeverOptimizeLiteMode()) {
   print("Warning: skipping test that requires optimization in Lite mode.");
   testRunner.quit(0);
 }
 assertFalse(isAlwaysOptimize());
 
-function f(disable_asserts) {
+function f() {
   do {
     do {
       for (var i = 0; i < 10; i++) {
@@ -47,7 +47,6 @@ function f(disable_asserts) {
       // feedback.
       var opt_status = %GetOptimizationStatus(f);
       assertTrue(
-        disable_asserts ||
         (opt_status & V8OptimizationStatus.kMaybeDeopted) !== 0 ||
         (opt_status & V8OptimizationStatus.kTopmostFrameIsTurboFanned) !== 0);
     } while (false);
@@ -55,8 +54,7 @@ function f(disable_asserts) {
 }
 
 %PrepareFunctionForOptimization(f);
-f(true);  // Gather feedback first.
-f(false);
+f();
 
 function g() {
   for (var i = 0; i < 1; i++) { }

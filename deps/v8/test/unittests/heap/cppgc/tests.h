@@ -69,7 +69,6 @@ class TestWithPlatform : public ::testing::Test {
 class TestWithHeap : public TestWithPlatform {
  public:
   TestWithHeap();
-  ~TestWithHeap() override;
 
   void PreciseGC() {
     heap_->ForceGarbageCollectionSlow(
@@ -87,9 +86,10 @@ class TestWithHeap : public TestWithPlatform {
   // size of the heap and corresponding pages.
   void ConservativeMemoryDiscardingGC() {
     internal::Heap::From(GetHeap())->CollectGarbage(
-        {CollectionType::kMajor, Heap::StackState::kMayContainHeapPointers,
+        {GarbageCollector::Config::CollectionType::kMajor,
+         Heap::StackState::kMayContainHeapPointers,
          cppgc::Heap::MarkingType::kAtomic, cppgc::Heap::SweepingType::kAtomic,
-         GCConfig::FreeMemoryHandling::kDiscardWherePossible});
+         GarbageCollector::Config::FreeMemoryHandling::kDiscardWherePossible});
   }
 
   cppgc::Heap* GetHeap() const { return heap_.get(); }

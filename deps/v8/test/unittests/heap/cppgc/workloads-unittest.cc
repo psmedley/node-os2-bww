@@ -26,11 +26,11 @@ class WorkloadsTest : public testing::TestWithHeap {
  public:
   void ConservativeGC() {
     internal::Heap::From(GetHeap())->CollectGarbage(
-        GCConfig::ConservativeAtomicConfig());
+        Heap::Config::ConservativeAtomicConfig());
   }
   void PreciseGC() {
     internal::Heap::From(GetHeap())->CollectGarbage(
-        GCConfig::PreciseAtomicConfig());
+        Heap::Config::PreciseAtomicConfig());
   }
 };
 

@@ -61,14 +61,12 @@ inline double FastUI2D(unsigned x) {
 
 // This function should match the exact semantics of ECMA-262 20.2.2.17.
 inline float DoubleToFloat32(double x);
-float DoubleToFloat32_NoInline(double x);
 
 // This function should match the exact semantics of ECMA-262 9.4.
 inline double DoubleToInteger(double x);
 
 // This function should match the exact semantics of ECMA-262 9.5.
 inline int32_t DoubleToInt32(double x);
-int32_t DoubleToInt32_NoInline(double x);
 
 // This function should match the exact semantics of ECMA-262 9.6.
 inline uint32_t DoubleToUint32(double x);
@@ -135,7 +133,7 @@ char* DoubleToPrecisionCString(double value, int f);
 char* DoubleToRadixCString(double value, int radix);
 
 static inline bool IsMinusZero(double value) {
-  return base::bit_cast<int64_t>(value) == base::bit_cast<int64_t>(-0.0);
+  return bit_cast<int64_t>(value) == bit_cast<int64_t>(-0.0);
 }
 
 // Returns true if value can be converted to a SMI, and returns the resulting

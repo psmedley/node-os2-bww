@@ -5,23 +5,22 @@
 #ifndef V8_HEAP_CONSERVATIVE_STACK_VISITOR_H_
 #define V8_HEAP_CONSERVATIVE_STACK_VISITOR_H_
 
-#include "include/v8-internal.h"
 #include "src/heap/base/stack.h"
+#include "src/heap/memory-chunk.h"
 
 namespace v8 {
 namespace internal {
 
-class RootVisitor;
-
-class V8_EXPORT_PRIVATE ConservativeStackVisitor
-    : public ::heap::base::StackVisitor {
+class ConservativeStackVisitor : public ::heap::base::StackVisitor {
  public:
   ConservativeStackVisitor(Isolate* isolate, RootVisitor* delegate);
 
   void VisitPointer(const void* pointer) final;
 
  private:
-  void VisitConservativelyIfPointer(Address address);
+  bool CheckPage(Address address, MemoryChunk* page);
+
+  void VisitConservativelyIfPointer(const void* pointer);
 
   Isolate* isolate_ = nullptr;
   RootVisitor* delegate_ = nullptr;

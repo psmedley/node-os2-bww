@@ -189,8 +189,8 @@ void StringBuiltinsAssembler::StringEqual_Core(
 
   // Check if both {lhs} and {rhs} are direct strings, and that in case of
   // ExternalStrings the data pointer is cached.
-  static_assert(kUncachedExternalStringTag != 0);
-  static_assert(kIsIndirectStringTag != 0);
+  STATIC_ASSERT(kUncachedExternalStringTag != 0);
+  STATIC_ASSERT(kIsIndirectStringTag != 0);
   int const kBothDirectStringMask =
       kIsIndirectStringMask | kUncachedExternalStringMask |
       ((kIsIndirectStringMask | kUncachedExternalStringMask) << 8);
@@ -320,8 +320,8 @@ TNode<String> StringBuiltinsAssembler::AllocateConsString(TNode<Uint32T> length,
 
   // Determine the resulting ConsString map to use depending on whether
   // any of {left} or {right} has two byte encoding.
-  static_assert(kOneByteStringTag != 0);
-  static_assert(kTwoByteStringTag == 0);
+  STATIC_ASSERT(kOneByteStringTag != 0);
+  STATIC_ASSERT(kTwoByteStringTag == 0);
   TNode<Int32T> combined_instance_type =
       Word32And(left_instance_type, right_instance_type);
   TNode<Map> result_map = CAST(Select<Object>(
@@ -345,18 +345,19 @@ TNode<String> StringBuiltinsAssembler::StringAdd(
 
   TVARIABLE(String, result);
   Label check_right(this), runtime(this, Label::kDeferred), cons(this),
-      done(this, &result);
+      done(this, &result), done_native(this, &result);
+  Counters* counters = isolate()->counters();
 
   TNode<Uint32T> left_length = LoadStringLengthAsWord32(left);
   GotoIfNot(Word32Equal(left_length, Uint32Constant(0)), &check_right);
   result = right;
-  Goto(&done);
+  Goto(&done_native);
 
   BIND(&check_right);
   TNode<Uint32T> right_length = LoadStringLengthAsWord32(right);
   GotoIfNot(Word32Equal(right_length, Uint32Constant(0)), &cons);
   result = left;
-  Goto(&done);
+  Goto(&done_native);
 
   BIND(&cons);
   {
@@ -377,7 +378,7 @@ TNode<String> StringBuiltinsAssembler::StringAdd(
 
     result =
         AllocateConsString(new_length, var_left.value(), var_right.value());
-    Goto(&done);
+    Goto(&done_native);
 
     BIND(&non_cons);
 
@@ -411,7 +412,7 @@ TNode<String> StringBuiltinsAssembler::StringAdd(
     CopyStringCharacters(var_right.value(), result.value(), IntPtrConstant(0),
                          word_left_length, word_right_length,
                          String::ONE_BYTE_ENCODING, String::ONE_BYTE_ENCODING);
-    Goto(&done);
+    Goto(&done_native);
 
     BIND(&two_byte);
     {
@@ -425,7 +426,7 @@ TNode<String> StringBuiltinsAssembler::StringAdd(
                            word_left_length, word_right_length,
                            String::TWO_BYTE_ENCODING,
                            String::TWO_BYTE_ENCODING);
-      Goto(&done);
+      Goto(&done_native);
     }
 
     BIND(&slow);
@@ -439,6 +440,12 @@ TNode<String> StringBuiltinsAssembler::StringAdd(
   BIND(&runtime);
   {
     result = CAST(CallRuntime(Runtime::kStringAdd, context, left, right));
+    Goto(&done);
+  }
+
+  BIND(&done_native);
+  {
+    IncrementCounter(counters->string_add_native(), 1);
     Goto(&done);
   }
 
@@ -473,7 +480,7 @@ void StringBuiltinsAssembler::DerefIndirectString(TVariable<String>* var_string,
   BIND(&can_deref);
 #endif  // DEBUG
 
-  static_assert(static_cast<int>(ThinString::kActualOffset) ==
+  STATIC_ASSERT(static_cast<int>(ThinString::kActualOffset) ==
                 static_cast<int>(ConsString::kFirstOffset));
   *var_string =
       LoadObjectField<String>(var_string->value(), ThinString::kActualOffset);
@@ -523,7 +530,7 @@ TNode<String> StringBuiltinsAssembler::DerefIndirectString(
   Label deref(this);
   BranchIfCanDerefIndirectString(string, instance_type, &deref, cannot_deref);
   BIND(&deref);
-  static_assert(static_cast<int>(ThinString::kActualOffset) ==
+  STATIC_ASSERT(static_cast<int>(ThinString::kActualOffset) ==
                 static_cast<int>(ConsString::kFirstOffset));
   return LoadObjectField<String>(string, ThinString::kActualOffset);
 }
@@ -1269,7 +1276,7 @@ TNode<JSArray> StringBuiltinsAssembler::StringToArray(
     TNode<RawPtrT> string_data =
         to_direct.PointerToData(&fill_thehole_and_call_runtime);
     TNode<IntPtrT> string_data_offset = to_direct.offset();
-    TNode<FixedArray> cache = SingleCharacterStringTableConstant();
+    TNode<FixedArray> cache = SingleCharacterStringCacheConstant();
 
     BuildFastLoop<IntPtrT>(
         IntPtrConstant(0), length,
@@ -1285,7 +1292,9 @@ TNode<JSArray> StringBuiltinsAssembler::StringToArray(
           TNode<UintPtrT> code_index = ChangeUint32ToWord(char_code);
           TNode<Object> entry = LoadFixedArrayElement(cache, code_index);
 
-          CSA_DCHECK(this, Word32BinaryNot(IsUndefined(entry)));
+          // If we cannot find a char in the cache, fill the hole for the fixed
+          // array, and call runtime.
+          GotoIf(IsUndefined(entry), &fill_thehole_and_call_runtime);
 
           StoreFixedArrayElement(elements, index, entry);
         },
@@ -1537,7 +1546,7 @@ void StringBuiltinsAssembler::CopyStringCharacters(
 
   ElementsKind from_kind = from_one_byte ? UINT8_ELEMENTS : UINT16_ELEMENTS;
   ElementsKind to_kind = to_one_byte ? UINT8_ELEMENTS : UINT16_ELEMENTS;
-  static_assert(SeqOneByteString::kHeaderSize == SeqTwoByteString::kHeaderSize);
+  STATIC_ASSERT(SeqOneByteString::kHeaderSize == SeqTwoByteString::kHeaderSize);
   int header_size = SeqOneByteString::kHeaderSize - kHeapObjectTag;
   TNode<IntPtrT> from_offset =
       ElementOffsetFromIndex(from_index, from_kind, header_size);
@@ -1654,7 +1663,7 @@ TNode<String> StringBuiltinsAssembler::SubString(TNode<String> string,
   // encoding at this point.
   Label external_string(this);
   {
-    if (v8_flags.string_slices) {
+    if (FLAG_string_slices) {
       Label next(this);
 
       // Short slice.  Copy instead of slicing.
@@ -1663,6 +1672,10 @@ TNode<String> StringBuiltinsAssembler::SubString(TNode<String> string,
              &next);
 
       // Allocate new sliced string.
+
+      Counters* counters = isolate()->counters();
+      IncrementCounter(counters->sub_string_native(), 1);
+
       Label one_byte_slice(this), two_byte_slice(this);
       Branch(IsOneByteStringInstanceType(to_direct.instance_type()),
              &one_byte_slice, &two_byte_slice);
@@ -1692,6 +1705,10 @@ TNode<String> StringBuiltinsAssembler::SubString(TNode<String> string,
 
     var_result = AllocAndCopyStringCharacters(direct_string, instance_type,
                                               offset, substr_length);
+
+    Counters* counters = isolate()->counters();
+    IncrementCounter(counters->sub_string_native(), 1);
+
     Goto(&end);
   }
 
@@ -1703,6 +1720,9 @@ TNode<String> StringBuiltinsAssembler::SubString(TNode<String> string,
 
     var_result = AllocAndCopyStringCharacters(
         fake_sequential_string, instance_type, offset, substr_length);
+
+    Counters* counters = isolate()->counters();
+    IncrementCounter(counters->sub_string_native(), 1);
 
     Goto(&end);
   }
@@ -1729,6 +1749,10 @@ TNode<String> StringBuiltinsAssembler::SubString(TNode<String> string,
     GotoIf(UintPtrGreaterThan(from, IntPtrConstant(0)), &runtime);
 
     // Return the original string (substr_length == string_length).
+
+    Counters* counters = isolate()->counters();
+    IncrementCounter(counters->sub_string_native(), 1);
+
     var_result = string;
     Goto(&end);
   }

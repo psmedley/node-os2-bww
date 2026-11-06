@@ -8,7 +8,7 @@
 #include "include/v8-exception.h"
 #include "include/v8-microtask-queue.h"
 #include "include/v8-template.h"
-#include "src/init/v8.h"
+#include "src/base/vector.h"
 #include "src/inspector/test-interface.h"
 #include "test/inspector/task-runner.h"
 #include "test/inspector/utils.h"
@@ -163,9 +163,7 @@ int InspectorIsolateData::ConnectSession(
     v8_inspector::V8Inspector::Channel* channel) {
   v8::SealHandleScope seal_handle_scope(isolate());
   int session_id = ++last_session_id_;
-  sessions_[session_id] =
-      inspector_->connect(context_group_id, channel, state,
-                          v8_inspector::V8Inspector::kFullyTrusted);
+  sessions_[session_id] = inspector_->connect(context_group_id, channel, state);
   context_group_by_session_[sessions_[session_id].get()] = context_group_id;
   return session_id;
 }

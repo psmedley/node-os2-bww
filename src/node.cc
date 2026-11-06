@@ -39,6 +39,7 @@
 #include "node_realm-inl.h"
 #include "node_report.h"
 #include "node_revert.h"
+#include "node_sea.h"
 #include "node_snapshot_builder.h"
 #include "node_v8_platform-inl.h"
 #include "node_version.h"
@@ -54,6 +55,10 @@
 #if HAVE_INSPECTOR
 #include "inspector_agent.h"
 #include "inspector_io.h"
+#endif
+
+#if defined HAVE_DTRACE || defined HAVE_ETW
+#include "node_dtrace.h"
 #endif
 
 #if NODE_USE_V8_PLATFORM
@@ -122,11 +127,10 @@
 #include <cstring>
 
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace node {
-
-using builtins::BuiltinLoader;
 
 using v8::EscapableHandleScope;
 using v8::Isolate;
@@ -170,7 +174,7 @@ void SignalExit(int signo, siginfo_t* info, void* ucontext) {
 #endif  // __POSIX__
 
 #if HAVE_INSPECTOR
-void Environment::InitializeInspector(
+int Environment::InitializeInspector(
     std::unique_ptr<inspector::ParentInspectorHandle> parent_handle) {
   std::string inspector_path;
   bool is_main = !parent_handle;
@@ -191,7 +195,7 @@ void Environment::InitializeInspector(
                           is_main);
   if (options_->debug_options().inspector_enabled &&
       !inspector_agent_->IsListening()) {
-    return;
+    return 12;  // Signal internal error
   }
 
   profiler::StartProfilers(this);
@@ -200,7 +204,7 @@ void Environment::InitializeInspector(
     inspector_agent_->PauseOnNextJavascriptStatement("Break at bootstrap");
   }
 
-  return;
+  return 0;
 }
 #endif  // HAVE_INSPECTOR
 
@@ -257,6 +261,10 @@ void Environment::InitializeDiagnostics() {
       env->isolate()->SetAtomicsWaitCallback(nullptr, nullptr);
     }, this);
   }
+
+#if defined HAVE_DTRACE || defined HAVE_ETW
+  InitDTrace(this);
+#endif
 }
 
 static
@@ -304,6 +312,18 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
   if (env->argv().size() > 1) {
     first_argv = env->argv()[1];
   }
+
+#ifndef DISABLE_SINGLE_EXECUTABLE_APPLICATION
+  if (sea::IsSingleExecutable()) {
+    // TODO(addaleax): Find a way to reuse:
+    //
+    // LoadEnvironment(Environment*, const char*)
+    //
+    // instead and not add yet another main entry point here because this
+    // already duplicates existing code.
+    return StartExecution(env, "internal/main/single_executable_application");
+  }
+#endif
 
   if (first_argv == "inspect") {
     return StartExecution(env, "internal/main/inspect");
@@ -363,10 +383,19 @@ static LONG TrapWebAssemblyOrContinue(EXCEPTION_POINTERS* exception) {
 }
 #else
 static std::atomic<sigaction_cb> previous_sigsegv_action;
+// TODO(align behavior between macos and other in next major version)
+#if defined(__APPLE__)
+static std::atomic<sigaction_cb> previous_sigbus_action;
+#endif  // __APPLE__
 
 void TrapWebAssemblyOrContinue(int signo, siginfo_t* info, void* ucontext) {
   if (!v8::TryHandleWebAssemblyTrapPosix(signo, info, ucontext)) {
+#if defined(__APPLE__)
+    sigaction_cb prev = signo == SIGBUS ? previous_sigbus_action.load()
+                                        : previous_sigsegv_action.load();
+#else
     sigaction_cb prev = previous_sigsegv_action.load();
+#endif  // __APPLE__
     if (prev != nullptr) {
       prev(signo, info, ucontext);
     } else {
@@ -396,6 +425,15 @@ void RegisterSignalHandler(int signal,
     previous_sigsegv_action.store(handler);
     return;
   }
+// TODO(align behavior between macos and other in next major version)
+#if defined(__APPLE__)
+  if (signal == SIGBUS) {
+    CHECK(previous_sigbus_action.is_lock_free());
+    CHECK(!reset_handler);
+    previous_sigbus_action.store(handler);
+    return;
+  }
+#endif  // __APPLE__
 #endif  // NODE_USE_V8_WASM_TRAP_HANDLER
   struct sigaction sa;
   memset(&sa, 0, sizeof(sa));
@@ -428,6 +466,17 @@ void ResetSignalHandlers() {
     if (nr == SIGKILL || nr == SIGSTOP)
       continue;
     act.sa_handler = (nr == SIGPIPE || nr == SIGXFSZ) ? SIG_IGN : SIG_DFL;
+    if (act.sa_handler == SIG_DFL) {
+      // The only bad handler value we can inhert from before exec is SIG_IGN
+      // (any actual function pointer is reset to SIG_DFL during exec).
+      // If that's the case, we want to reset it back to SIG_DFL.
+      // However, it's also possible that an embeder (or an LD_PRELOAD-ed
+      // library) has set up own signal handler for own purposes
+      // (e.g. profiling). If that's the case, we want to keep it intact.
+      struct sigaction old;
+      CHECK_EQ(0, sigaction(nr, nullptr, &old));
+      if ((old.sa_flags & SA_SIGINFO) || old.sa_handler != SIG_IGN) continue;
+    }
     CHECK_EQ(0, sigaction(nr, &act, nullptr));
   }
 #endif  // __POSIX__
@@ -535,7 +584,7 @@ static void PlatformInit(ProcessInitializationFlags::Flags flags) {
 #else
     // Tell V8 to disable emitting WebAssembly
     // memory bounds checks. This means that we have
-    // to catch the SIGSEGV in TrapWebAssemblyOrContinue
+    // to catch the SIGSEGV/SIGBUS in TrapWebAssemblyOrContinue
     // and pass the signal context to V8.
     {
       struct sigaction sa;
@@ -543,6 +592,10 @@ static void PlatformInit(ProcessInitializationFlags::Flags flags) {
       sa.sa_sigaction = TrapWebAssemblyOrContinue;
       sa.sa_flags = SA_SIGINFO;
       CHECK_EQ(sigaction(SIGSEGV, &sa, nullptr), 0);
+// TODO(align behavior between macos and other in next major version)
+#if defined(__APPLE__)
+      CHECK_EQ(sigaction(SIGBUS, &sa, nullptr), 0);
+#endif
     }
 #endif  // defined(_WIN32)
     V8::EnableWebAssemblyTrapHandler(false);
@@ -651,10 +704,11 @@ void ResetStdio() {
 #endif  // __POSIX__
 }
 
-static ExitCode ProcessGlobalArgsInternal(std::vector<std::string>* args,
-                                          std::vector<std::string>* exec_args,
-                                          std::vector<std::string>* errors,
-                                          OptionEnvvarSettings settings) {
+
+int ProcessGlobalArgs(std::vector<std::string>* args,
+                      std::vector<std::string>* exec_args,
+                      std::vector<std::string>* errors,
+                      OptionEnvvarSettings settings) {
   // Parse a few arguments which are specific to Node.
   std::vector<std::string> v8_args;
 
@@ -667,15 +721,14 @@ static ExitCode ProcessGlobalArgsInternal(std::vector<std::string>* args,
       settings,
       errors);
 
-  if (!errors->empty()) return ExitCode::kInvalidCommandLineArgument;
+  if (!errors->empty()) return 9;
 
   std::string revert_error;
   for (const std::string& cve : per_process::cli_options->security_reverts) {
     Revert(cve.c_str(), &revert_error);
     if (!revert_error.empty()) {
       errors->emplace_back(std::move(revert_error));
-      // TODO(joyeecheung): merge into kInvalidCommandLineArgument.
-      return ExitCode::kInvalidCommandLineArgument2;
+      return 12;
     }
   }
 
@@ -683,8 +736,7 @@ static ExitCode ProcessGlobalArgsInternal(std::vector<std::string>* args,
       per_process::cli_options->disable_proto != "throw" &&
       per_process::cli_options->disable_proto != "") {
     errors->emplace_back("invalid mode passed to --disable-proto");
-    // TODO(joyeecheung): merge into kInvalidCommandLineArgument.
-    return ExitCode::kInvalidCommandLineArgument2;
+    return 12;
   }
 
   // TODO(aduh95): remove this when the harmony-import-assertions flag
@@ -692,6 +744,13 @@ static ExitCode ProcessGlobalArgsInternal(std::vector<std::string>* args,
   if (std::find(v8_args.begin(), v8_args.end(),
                 "--no-harmony-import-assertions") == v8_args.end()) {
     v8_args.emplace_back("--harmony-import-assertions");
+  }
+  // TODO(aduh95): remove this when the harmony-import-attributes flag
+  // is removed in V8.
+  if (std::find(v8_args.begin(),
+                v8_args.end(),
+                "--no-harmony-import-attributes") == v8_args.end()) {
+    v8_args.emplace_back("--harmony-import-attributes");
   }
 
   auto env_opts = per_process::cli_options->per_isolate->per_env;
@@ -714,9 +773,9 @@ static ExitCode ProcessGlobalArgsInternal(std::vector<std::string>* args,
   std::vector<char*> v8_args_as_char_ptr(v8_args.size());
   if (v8_args.size() > 0) {
     for (size_t i = 0; i < v8_args.size(); ++i)
-      v8_args_as_char_ptr[i] = &v8_args[i][0];
+      v8_args_as_char_ptr[i] = v8_args[i].data();
     int argc = v8_args.size();
-    V8::SetFlagsFromCommandLine(&argc, &v8_args_as_char_ptr[0], true);
+    V8::SetFlagsFromCommandLine(&argc, v8_args_as_char_ptr.data(), true);
     v8_args_as_char_ptr.resize(argc);
   }
 
@@ -724,29 +783,26 @@ static ExitCode ProcessGlobalArgsInternal(std::vector<std::string>* args,
   for (size_t i = 1; i < v8_args_as_char_ptr.size(); i++)
     errors->push_back("bad option: " + std::string(v8_args_as_char_ptr[i]));
 
-  if (v8_args_as_char_ptr.size() > 1)
-    return ExitCode::kInvalidCommandLineArgument;
+  if (v8_args_as_char_ptr.size() > 1) return 9;
 
-  return ExitCode::kNoFailure;
-}
-
-int ProcessGlobalArgs(std::vector<std::string>* args,
-                      std::vector<std::string>* exec_args,
-                      std::vector<std::string>* errors,
-                      OptionEnvvarSettings settings) {
-  return static_cast<int>(
-      ProcessGlobalArgsInternal(args, exec_args, errors, settings));
+  return 0;
 }
 
 static std::atomic_bool init_called{false};
 
 // TODO(addaleax): Turn this into a wrapper around InitializeOncePerProcess()
 // (with the corresponding additional flags set), then eventually remove this.
-static ExitCode InitializeNodeWithArgsInternal(
-    std::vector<std::string>* argv,
-    std::vector<std::string>* exec_argv,
-    std::vector<std::string>* errors,
-    ProcessInitializationFlags::Flags flags) {
+int InitializeNodeWithArgs(std::vector<std::string>* argv,
+                           std::vector<std::string>* exec_argv,
+                           std::vector<std::string>* errors) {
+  return InitializeNodeWithArgs(argv, exec_argv, errors,
+                                ProcessFlags::kNoFlags);
+}
+
+int InitializeNodeWithArgs(std::vector<std::string>* argv,
+                           std::vector<std::string>* exec_argv,
+                           std::vector<std::string>* errors,
+                           ProcessInitializationFlags::Flags flags) {
   // Make sure InitializeNodeWithArgs() is called only once.
   CHECK(!init_called.exchange(true));
 
@@ -766,11 +822,6 @@ static ExitCode InitializeNodeWithArgsInternal(
   // used in diagnostic reports.
   per_process::cli_options->cmdline = *argv;
 
-  // Node provides a "v8.setFlagsFromString" method to dynamically change flags.
-  // Hence do not freeze flags when initializing V8. In a browser setting, this
-  // is security relevant, for Node it's less important.
-  V8::SetFlagsFromString("--no-freeze-flags-after-init");
-
 #if defined(NODE_V8_OPTIONS)
   // Should come before the call to V8::SetFlagsFromCommandLine()
   // so the user can disable a flag --foo at run-time by passing
@@ -788,22 +839,26 @@ static ExitCode InitializeNodeWithArgsInternal(
       std::vector<std::string> env_argv =
           ParseNodeOptionsEnvVar(node_options, errors);
 
-      if (!errors->empty()) return ExitCode::kInvalidCommandLineArgument;
+      if (!errors->empty()) return 9;
 
       // [0] is expected to be the program name, fill it in from the real argv.
       env_argv.insert(env_argv.begin(), argv->at(0));
 
-      const ExitCode exit_code = ProcessGlobalArgsInternal(
-          &env_argv, nullptr, errors, kAllowedInEnvvar);
-      if (exit_code != ExitCode::kNoFailure) return exit_code;
+      const int exit_code = ProcessGlobalArgs(&env_argv,
+                                              nullptr,
+                                              errors,
+                                              kAllowedInEnvvar);
+      if (exit_code != 0) return exit_code;
     }
   }
 #endif
 
   if (!(flags & ProcessInitializationFlags::kDisableCLIOptions)) {
-    const ExitCode exit_code =
-        ProcessGlobalArgsInternal(argv, exec_argv, errors, kDisallowedInEnvvar);
-    if (exit_code != ExitCode::kNoFailure) return exit_code;
+    const int exit_code = ProcessGlobalArgs(argv,
+                                            exec_argv,
+                                            errors,
+                                            kDisallowedInEnvvar);
+    if (exit_code != 0) return exit_code;
   }
 
   // Set the process.title immediately after processing argv if --title is set.
@@ -840,7 +895,7 @@ static ExitCode InitializeNodeWithArgsInternal(
     if (!i18n::InitializeICUDirectory(per_process::cli_options->icu_data_dir)) {
       errors->push_back("could not initialize ICU "
                         "(check NODE_ICU_DATA or --icu-data-dir parameters)\n");
-      return ExitCode::kInvalidCommandLineArgument;
+      return 9;
     }
     per_process::metadata.versions.InitializeIntlVersions();
   }
@@ -858,21 +913,12 @@ static ExitCode InitializeNodeWithArgsInternal(
   // otherwise embedders using node::Init to initialize everything will not be
   // able to set it and native addons will not load for them.
   node_is_initialized = true;
-  return ExitCode::kNoFailure;
+  return 0;
 }
 
-int InitializeNodeWithArgs(std::vector<std::string>* argv,
-                           std::vector<std::string>* exec_argv,
-                           std::vector<std::string>* errors,
-                           ProcessInitializationFlags::Flags flags) {
-  return static_cast<int>(
-      InitializeNodeWithArgsInternal(argv, exec_argv, errors, flags));
-}
-
-static std::unique_ptr<InitializationResultImpl>
-InitializeOncePerProcessInternal(const std::vector<std::string>& args,
-                                 ProcessInitializationFlags::Flags flags =
-                                     ProcessInitializationFlags::kNoFlags) {
+std::unique_ptr<InitializationResult> InitializeOncePerProcess(
+    const std::vector<std::string>& args,
+    ProcessInitializationFlags::Flags flags) {
   auto result = std::make_unique<InitializationResultImpl>();
   result->args_ = args;
 
@@ -886,9 +932,9 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
 
   // This needs to run *before* V8::Initialize().
   {
-    result->exit_code_ = InitializeNodeWithArgsInternal(
+    result->exit_code_ = InitializeNodeWithArgs(
         &result->args_, &result->exec_args_, &result->errors_, flags);
-    if (result->exit_code_enum() != ExitCode::kNoFailure) {
+    if (result->exit_code() != 0) {
       result->early_return_ = true;
       return result;
     }
@@ -906,7 +952,7 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
   if (!(flags & ProcessInitializationFlags::kNoPrintHelpOrVersionOutput)) {
     if (per_process::cli_options->print_version) {
       printf("%s\n", NODE_VERSION);
-      result->exit_code_ = ExitCode::kNoFailure;
+      result->exit_code_ = 0;
       result->early_return_ = true;
       return result;
     }
@@ -914,14 +960,14 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
     if (per_process::cli_options->print_bash_completion) {
       std::string completion = options_parser::GetBashCompletion();
       printf("%s\n", completion.c_str());
-      result->exit_code_ = ExitCode::kNoFailure;
+      result->exit_code_ = 0;
       result->early_return_ = true;
       return result;
     }
 
     if (per_process::cli_options->print_v8_help) {
       V8::SetFlagsFromString("--help", static_cast<size_t>(6));
-      result->exit_code_ = ExitCode::kNoFailure;
+      result->exit_code_ = 0;
       result->early_return_ = true;
       return result;
     }
@@ -942,11 +988,6 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
       return ret;
     };
 
-    {
-      std::string extra_ca_certs;
-      if (credentials::SafeGetenv("NODE_EXTRA_CA_CERTS", &extra_ca_certs))
-        crypto::UseExtraCaCerts(extra_ca_certs);
-    }
     // In the case of FIPS builds we should make sure
     // the random source is properly initialized first.
 #if OPENSSL_VERSION_MAJOR >= 3
@@ -998,8 +1039,7 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
     if (ERR_peek_error() != 0) {
       // XXX: ERR_GET_REASON does not return something that is
       // useful as an exit code at all.
-      result->exit_code_ =
-          static_cast<ExitCode>(ERR_GET_REASON(ERR_peek_error()));
+      result->exit_code_ = ERR_GET_REASON(ERR_peek_error());
       result->early_return_ = true;
       result->errors_.emplace_back("OpenSSL configuration error:\n" +
                                    GetOpenSSLErrorString());
@@ -1013,8 +1053,7 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
     if (!crypto::ProcessFipsOptions()) {
       // XXX: ERR_GET_REASON does not return something that is
       // useful as an exit code at all.
-      result->exit_code_ =
-          static_cast<ExitCode>(ERR_GET_REASON(ERR_peek_error()));
+      result->exit_code_ = ERR_GET_REASON(ERR_peek_error());
       result->early_return_ = true;
       result->errors_.emplace_back(
           "OpenSSL error when trying to enable FIPS:\n" +
@@ -1033,6 +1072,12 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
       CHECK(crypto::CSPRNG(buffer, length).is_ok());
       return true;
     });
+
+    {
+      std::string extra_ca_certs;
+      if (credentials::SafeGetenv("NODE_EXTRA_CA_CERTS", &extra_ca_certs))
+        crypto::UseExtraCaCerts(extra_ca_certs);
+    }
 #endif  // HAVE_OPENSSL && !defined(OPENSSL_IS_BORINGSSL)
   }
 
@@ -1050,12 +1095,6 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
   per_process::v8_initialized = true;
 
   return result;
-}
-
-std::unique_ptr<InitializationResult> InitializeOncePerProcess(
-    const std::vector<std::string>& args,
-    ProcessInitializationFlags::Flags flags) {
-  return InitializeOncePerProcessInternal(args, flags);
 }
 
 void TearDownOncePerProcess() {
@@ -1091,9 +1130,9 @@ void TearDownOncePerProcess() {
 InitializationResult::~InitializationResult() {}
 InitializationResultImpl::~InitializationResultImpl() {}
 
-ExitCode GenerateAndWriteSnapshotData(const SnapshotData** snapshot_data_ptr,
-                                      const InitializationResultImpl* result) {
-  ExitCode exit_code = result->exit_code_enum();
+int GenerateAndWriteSnapshotData(const SnapshotData** snapshot_data_ptr,
+                                 const InitializationResult* result) {
+  int exit_code = result->exit_code();
   // nullptr indicates there's no snapshot data.
   DCHECK_NULL(*snapshot_data_ptr);
 
@@ -1107,8 +1146,7 @@ ExitCode GenerateAndWriteSnapshotData(const SnapshotData** snapshot_data_ptr,
               "node:embedded_snapshot_main was specified as snapshot "
               "entry point but Node.js was built without embedded "
               "snapshot.\n");
-      // TODO(joyeecheung): should be kInvalidCommandLineArgument instead.
-      exit_code = ExitCode::kGenericUserError;
+      exit_code = 1;
       return exit_code;
     }
   } else {
@@ -1117,7 +1155,7 @@ ExitCode GenerateAndWriteSnapshotData(const SnapshotData** snapshot_data_ptr,
         std::make_unique<SnapshotData>();
     exit_code = node::SnapshotBuilder::Generate(
         generated_data.get(), result->args(), result->exec_args());
-    if (exit_code == ExitCode::kNoFailure) {
+    if (exit_code == 0) {
       *snapshot_data_ptr = generated_data.release();
     } else {
       return exit_code;
@@ -1141,15 +1179,14 @@ ExitCode GenerateAndWriteSnapshotData(const SnapshotData** snapshot_data_ptr,
     fprintf(stderr,
             "Cannot open %s for writing a snapshot.\n",
             snapshot_blob_path.c_str());
-    // TODO(joyeecheung): should be kStartupSnapshotFailure.
-    exit_code = ExitCode::kGenericUserError;
+    exit_code = 1;
   }
   return exit_code;
 }
 
-ExitCode LoadSnapshotDataAndRun(const SnapshotData** snapshot_data_ptr,
-                                const InitializationResultImpl* result) {
-  ExitCode exit_code = result->exit_code_enum();
+int LoadSnapshotDataAndRun(const SnapshotData** snapshot_data_ptr,
+                           const InitializationResult* result) {
+  int exit_code = result->exit_code();
   // nullptr indicates there's no snapshot data.
   DCHECK_NULL(*snapshot_data_ptr);
   // --snapshot-blob indicates that we are reading a customized snapshot.
@@ -1158,19 +1195,18 @@ ExitCode LoadSnapshotDataAndRun(const SnapshotData** snapshot_data_ptr,
     FILE* fp = fopen(filename.c_str(), "rb");
     if (fp == nullptr) {
       fprintf(stderr, "Cannot open %s", filename.c_str());
-      // TODO(joyeecheung): should be kStartupSnapshotFailure.
-      exit_code = ExitCode::kGenericUserError;
+      exit_code = 1;
       return exit_code;
     }
     std::unique_ptr<SnapshotData> read_data = std::make_unique<SnapshotData>();
-    if (!SnapshotData::FromBlob(read_data.get(), fp)) {
+    bool ok = SnapshotData::FromBlob(read_data.get(), fp);
+    fclose(fp);
+    if (!ok) {
       // If we fail to read the customized snapshot, simply exit with 1.
-      // TODO(joyeecheung): should be kStartupSnapshotFailure.
-      exit_code = ExitCode::kGenericUserError;
+      exit_code = 1;
       return exit_code;
     }
     *snapshot_data_ptr = read_data.release();
-    fclose(fp);
   } else if (per_process::cli_options->node_snapshot) {
     // If --snapshot-blob is not specified, we are reading the embedded
     // snapshot, but we will skip it if --no-node-snapshot is specified.
@@ -1183,9 +1219,6 @@ ExitCode LoadSnapshotDataAndRun(const SnapshotData** snapshot_data_ptr,
     }
   }
 
-  if ((*snapshot_data_ptr) != nullptr) {
-    BuiltinLoader::RefreshCodeCache((*snapshot_data_ptr)->code_cache);
-  }
   NodeMainInstance main_instance(*snapshot_data_ptr,
                                  uv_default_loop(),
                                  per_process::v8_platform.Platform(),
@@ -1195,23 +1228,26 @@ ExitCode LoadSnapshotDataAndRun(const SnapshotData** snapshot_data_ptr,
   return exit_code;
 }
 
-static ExitCode StartInternal(int argc, char** argv) {
+int Start(int argc, char** argv) {
+#ifndef DISABLE_SINGLE_EXECUTABLE_APPLICATION
+  std::tie(argc, argv) = sea::FixupArgsForSEA(argc, argv);
+#endif
+
   CHECK_GT(argc, 0);
 
   // Hack around with the argv pointer. Used for process.title = "blah".
   argv = uv_setup_args(argc, argv);
 
-  std::unique_ptr<InitializationResultImpl> result =
-      InitializeOncePerProcessInternal(
-          std::vector<std::string>(argv, argv + argc));
+  std::unique_ptr<InitializationResult> result =
+      InitializeOncePerProcess(std::vector<std::string>(argv, argv + argc));
   for (const std::string& error : result->errors()) {
     FPrintF(stderr, "%s: %s\n", result->args().at(0), error);
   }
   if (result->early_return()) {
-    return result->exit_code_enum();
+    return result->exit_code();
   }
 
-  DCHECK_EQ(result->exit_code_enum(), ExitCode::kNoFailure);
+  DCHECK_EQ(result->exit_code(), 0);
   const SnapshotData* snapshot_data = nullptr;
 
   auto cleanup_process = OnScopeLeave([&]() {
@@ -1231,7 +1267,7 @@ static ExitCode StartInternal(int argc, char** argv) {
       fprintf(stderr,
               "--build-snapshot must be used with an entry point script.\n"
               "Usage: node --build-snapshot /path/to/entry.js\n");
-      return ExitCode::kInvalidCommandLineArgument;
+      return 9;
     }
     return GenerateAndWriteSnapshotData(&snapshot_data, result.get());
   }
@@ -1240,12 +1276,12 @@ static ExitCode StartInternal(int argc, char** argv) {
   return LoadSnapshotDataAndRun(&snapshot_data, result.get());
 }
 
-int Start(int argc, char** argv) {
-  return static_cast<int>(StartInternal(argc, argv));
+int Stop(Environment* env) {
+  return Stop(env, StopFlags::kNoFlags);
 }
 
-int Stop(Environment* env) {
-  env->ExitEnv();
+int Stop(Environment* env, StopFlags::Flags flags) {
+  env->ExitEnv(flags);
   return 0;
 }
 

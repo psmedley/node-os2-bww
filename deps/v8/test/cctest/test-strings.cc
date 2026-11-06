@@ -32,6 +32,7 @@
 
 #include <stdlib.h>
 
+#include "include/v8-initialization.h"
 #include "include/v8-json.h"
 #include "src/api/api-inl.h"
 #include "src/base/platform/elapsed-timer.h"
@@ -39,7 +40,9 @@
 #include "src/execution/messages.h"
 #include "src/heap/factory.h"
 #include "src/heap/heap-inl.h"
+#include "src/init/v8.h"
 #include "src/objects/objects-inl.h"
+#include "src/strings/unicode-decoder.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/heap/heap-utils.h"
 
@@ -649,7 +652,7 @@ static inline void PrintStats(const ConsStringGenerationData& data) {
 
 template <typename BuildString>
 void TestStringCharacterStream(BuildString build, int test_cases) {
-  v8_flags.gc_global = true;
+  FLAG_gc_global = true;
   CcTest::InitializeVM();
   Isolate* isolate = CcTest::i_isolate();
   HandleScope outer_scope(isolate);
@@ -1154,7 +1157,7 @@ TEST(ReplaceInvalidUtf8) {
 }
 
 TEST(JSONStringifySliceMadeExternal) {
-  if (!v8_flags.string_slices) return;
+  if (!FLAG_string_slices) return;
   CcTest::InitializeVM();
   // Create a sliced string from a one-byte string.  The latter is turned
   // into a two-byte external string.  Check that JSON.stringify works.
@@ -1330,7 +1333,7 @@ TEST(CachedHashOverflow) {
 }
 
 TEST(SliceFromCons) {
-  if (!v8_flags.string_slices) return;
+  if (!FLAG_string_slices) return;
   CcTest::InitializeVM();
   Factory* factory = CcTest::i_isolate()->factory();
   v8::HandleScope scope(CcTest::isolate());
@@ -1365,7 +1368,7 @@ class OneByteVectorResource : public v8::String::ExternalOneByteStringResource {
 };
 
 TEST(InternalizeExternal) {
-  v8_flags.stress_incremental_marking = false;
+  FLAG_stress_incremental_marking = false;
   CcTest::InitializeVM();
   i::Isolate* isolate = CcTest::i_isolate();
   Factory* factory = isolate->factory();
@@ -1394,7 +1397,7 @@ TEST(InternalizeExternal) {
 }
 
 TEST(SliceFromExternal) {
-  if (!v8_flags.string_slices) return;
+  if (!FLAG_string_slices) return;
   CcTest::InitializeVM();
   Factory* factory = CcTest::i_isolate()->factory();
   v8::HandleScope scope(CcTest::isolate());
@@ -1417,7 +1420,7 @@ TEST(SliceFromExternal) {
 TEST(TrivialSlice) {
   // This tests whether a slice that contains the entire parent string
   // actually creates a new string (it should not).
-  if (!v8_flags.string_slices) return;
+  if (!FLAG_string_slices) return;
   CcTest::InitializeVM();
   Factory* factory = CcTest::i_isolate()->factory();
   v8::HandleScope scope(CcTest::isolate());
@@ -1446,7 +1449,7 @@ TEST(TrivialSlice) {
 TEST(SliceFromSlice) {
   // This tests whether a slice that contains the entire parent string
   // actually creates a new string (it should not).
-  if (!v8_flags.string_slices) return;
+  if (!FLAG_string_slices) return;
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   v8::Local<v8::Value> result;
@@ -1654,7 +1657,7 @@ TEST(InvalidExternalString) {
     CcTest::InitializeVM();                                              \
     LocalContext context;                                                \
     Isolate* isolate = CcTest::i_isolate();                              \
-    static_assert(String::kMaxLength < kMaxInt);                         \
+    STATIC_ASSERT(String::kMaxLength < kMaxInt);                         \
     static const int invalid = String::kMaxLength + 1;                   \
     HandleScope scope(isolate);                                          \
     v8::base::Vector<TYPE> dummy = v8::base::Vector<TYPE>::New(invalid); \
@@ -1747,6 +1750,69 @@ TEST(ExternalStringIndexOf) {
                    .FromJust());
 }
 
+#define GC_INSIDE_NEW_STRING_FROM_UTF8_SUB_STRING(NAME, STRING)                \
+  TEST(GCInsideNewStringFromUtf8SubStringWith##NAME) {                         \
+    FLAG_stress_concurrent_allocation = false; /* For SimulateFullSpace. */    \
+    CcTest::InitializeVM();                                                    \
+    LocalContext context;                                                      \
+    v8::HandleScope scope(CcTest::isolate());                                  \
+    Factory* factory = CcTest::i_isolate()->factory();                         \
+    /* Length must be bigger than the buffer size of the Utf8Decoder. */       \
+    const char* buf = STRING;                                                  \
+    size_t len = strlen(buf);                                                  \
+    Handle<String> main_string =                                               \
+        factory                                                                \
+            ->NewStringFromOneByte(v8::base::Vector<const uint8_t>(            \
+                reinterpret_cast<const uint8_t*>(buf), len))                   \
+            .ToHandleChecked();                                                \
+    if (FLAG_single_generation) {                                              \
+      CHECK(!Heap::InYoungGeneration(*main_string));                           \
+      heap::SimulateFullSpace(CcTest::i_isolate()->heap()->old_space());       \
+    } else {                                                                   \
+      CHECK(Heap::InYoungGeneration(*main_string));                            \
+      heap::SimulateFullSpace(CcTest::i_isolate()->heap()->new_space());       \
+    }                                                                          \
+    /* Offset by two to check substring-ing. */                                \
+    Handle<String> s = factory                                                 \
+                           ->NewStringFromUtf8SubString(                       \
+                               Handle<SeqOneByteString>::cast(main_string), 2, \
+                               static_cast<int>(len - 2))                      \
+                           .ToHandleChecked();                                 \
+    Handle<String> expected_string =                                           \
+        factory                                                                \
+            ->NewStringFromUtf8(                                               \
+                v8::base::Vector<const char>(buf + 2, len - 2))                \
+            .ToHandleChecked();                                                \
+    CHECK(s->Equals(*expected_string));                                        \
+  }
+
+GC_INSIDE_NEW_STRING_FROM_UTF8_SUB_STRING(
+    OneByte,
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ")
+GC_INSIDE_NEW_STRING_FROM_UTF8_SUB_STRING(
+    TwoByte,
+    "QQ\xF0\x9F\x98\x8D\xF0\x9F\x98\x8D"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    "QQ\xF0\x9F\x98\x8D\xF0\x9F\x98\x8D")
+
+#undef GC_INSIDE_NEW_STRING_FROM_UTF8_SUB_STRING
+
 namespace {
 
 struct IndexData {
@@ -1768,7 +1834,8 @@ void TestString(i::Isolate* isolate, const IndexData& data) {
     size_t index;
     CHECK(s->AsIntegerIndex(&index));
     CHECK_EQ(data.integer_index, index);
-    CHECK(String::IsIntegerIndex(s->EnsureRawHash()));
+    s->EnsureHash();
+    CHECK(String::IsIntegerIndex(s->raw_hash_field()));
     CHECK(s->HasHashCode());
   }
   if (!s->HasHashCode()) s->EnsureHash();
@@ -1854,9 +1921,7 @@ class OneByteStringResource : public v8::String::ExternalOneByteStringResource {
 
 TEST(Regress876759) {
   // Thin strings are used in conjunction with young gen
-  if (v8_flags.single_generation) return;
-  // We don't create ThinStrings immediately when using the forwarding table.
-  if (v8_flags.always_use_string_forwarding_table) return;
+  if (FLAG_single_generation) return;
   Isolate* isolate = CcTest::i_isolate();
   Factory* factory = isolate->factory();
 
@@ -2066,11 +2131,11 @@ TEST(CheckCachedDataInternalExternalUncachedString) {
   // that we indeed cached it.
   Handle<ExternalOneByteString> external_string =
       Handle<ExternalOneByteString>::cast(string);
-  // If the sandbox is enabled, string objects will always be cacheable because
-  // they are smaller.
-  CHECK(V8_ENABLE_SANDBOX_BOOL || external_string->is_uncached());
+  // If sandboxed external pointers are enabled, string objects will always be
+  // cacheable because they are smaller.
+  CHECK(V8_SANDBOXED_EXTERNAL_POINTERS_BOOL || external_string->is_uncached());
   CHECK(external_string->resource()->IsCacheable());
-  if (!V8_ENABLE_SANDBOX_BOOL) {
+  if (!V8_SANDBOXED_EXTERNAL_POINTERS_BOOL) {
     CHECK_NOT_NULL(external_string->resource()->cached_data());
     CHECK_EQ(external_string->resource()->cached_data(),
              external_string->resource()->data());
@@ -2109,11 +2174,11 @@ TEST(CheckCachedDataInternalExternalUncachedStringTwoByte) {
   // that we indeed cached it.
   Handle<ExternalTwoByteString> external_string =
       Handle<ExternalTwoByteString>::cast(string);
-  // If the sandbox is enabled, string objects will always be cacheable because
-  // they are smaller.
-  CHECK(V8_ENABLE_SANDBOX_BOOL || external_string->is_uncached());
+  // If sandboxed external pointers are enabled, string objects will always be
+  // cacheable because they are smaller.
+  CHECK(V8_SANDBOXED_EXTERNAL_POINTERS_BOOL || external_string->is_uncached());
   CHECK(external_string->resource()->IsCacheable());
-  if (!V8_ENABLE_SANDBOX_BOOL) {
+  if (!V8_SANDBOXED_EXTERNAL_POINTERS_BOOL) {
     CHECK_NOT_NULL(external_string->resource()->cached_data());
     CHECK_EQ(external_string->resource()->cached_data(),
              external_string->resource()->data());

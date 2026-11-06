@@ -481,20 +481,6 @@ class Runner {
     }
   }
 
-  template <typename I>
-  bool ParseInt(char* s, I* out) {
-    char* end;
-    if (s[0] == '\0') return false;
-    errno = 0;
-    long l = strtol(s, &end, 10);
-    if (errno != 0 || *end != '\0' || l > std::numeric_limits<I>::max() ||
-        l < std::numeric_limits<I>::min()) {
-      return false;
-    }
-    *out = static_cast<I>(l);
-    return true;
-  }
-
   int ParseOptions(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
       if (strcmp(argv[i], "--list") == 0) {
@@ -504,16 +490,14 @@ class Runner {
         return 0;
       } else if (strcmp(argv[i], "--random-seed") == 0 ||
                  strcmp(argv[i], "--random_seed") == 0) {
-        if (++i == argc || !ParseInt(argv[i], &random_seed_)) {
-          return PrintHelp(argv);
-        }
+        random_seed_ = std::stoi(argv[++i]);
       } else if (strncmp(argv[i], "--random-seed=", 14) == 0 ||
                  strncmp(argv[i], "--random_seed=", 14) == 0) {
-        if (!ParseInt(argv[i] + 14, &random_seed_)) return PrintHelp(argv);
+        random_seed_ = std::stoi(argv[i] + 14);
       } else if (strcmp(argv[i], "--runs") == 0) {
-        if (++i == argc || !ParseInt(argv[i], &runs_)) return PrintHelp(argv);
+        runs_ = std::stoi(argv[++i]);
       } else if (strncmp(argv[i], "--runs=", 7) == 0) {
-        if (!ParseInt(argv[i] + 7, &runs_)) return PrintHelp(argv);
+        runs_ = std::stoi(argv[i] + 7);
       }
 #define TEST(kName, name)                \
   else if (strcmp(argv[i], name) == 0) { \

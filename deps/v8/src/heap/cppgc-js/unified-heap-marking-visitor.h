@@ -65,6 +65,11 @@ class V8_EXPORT_PRIVATE MutatorUnifiedHeapMarkingVisitor
   MutatorUnifiedHeapMarkingVisitor(HeapBase&, MutatorMarkingState&,
                                    UnifiedHeapMarkingState&);
   ~MutatorUnifiedHeapMarkingVisitor() override = default;
+
+ protected:
+  void VisitRoot(const void*, TraceDescriptor, const SourceLocation&) final;
+  void VisitWeakRoot(const void*, TraceDescriptor, WeakCallback, const void*,
+                     const SourceLocation&) final;
 };
 
 class V8_EXPORT_PRIVATE MutatorMinorGCMarkingVisitor final
@@ -79,7 +84,7 @@ class V8_EXPORT_PRIVATE MutatorMinorGCMarkingVisitor final
   void Visit(const TracedReferenceBase&) final {}
 };
 
-class V8_EXPORT_PRIVATE ConcurrentUnifiedHeapMarkingVisitor
+class V8_EXPORT_PRIVATE ConcurrentUnifiedHeapMarkingVisitor final
     : public UnifiedHeapMarkingVisitorBase {
  public:
   ConcurrentUnifiedHeapMarkingVisitor(HeapBase&, Heap*,
@@ -87,6 +92,14 @@ class V8_EXPORT_PRIVATE ConcurrentUnifiedHeapMarkingVisitor
   ~ConcurrentUnifiedHeapMarkingVisitor() override;
 
  protected:
+  void VisitRoot(const void*, TraceDescriptor, const SourceLocation&) final {
+    UNREACHABLE();
+  }
+  void VisitWeakRoot(const void*, TraceDescriptor, WeakCallback, const void*,
+                     const SourceLocation&) final {
+    UNREACHABLE();
+  }
+
   bool DeferTraceToMutatorThreadIfConcurrent(const void*, cppgc::TraceCallback,
                                              size_t) final;
 
@@ -98,20 +111,6 @@ class V8_EXPORT_PRIVATE ConcurrentUnifiedHeapMarkingVisitor
   // attached.
   std::unique_ptr<MarkingWorklists::Local> local_marking_worklist_;
   UnifiedHeapMarkingState concurrent_unified_heap_marking_state_;
-};
-
-// Same visitor as for full GCs unified heap, but avoids visiting
-// TracedReferences.
-class V8_EXPORT_PRIVATE ConcurrentMinorGCMarkingVisitor final
-    : public ConcurrentUnifiedHeapMarkingVisitor {
- public:
-  using ConcurrentUnifiedHeapMarkingVisitor::
-      ConcurrentUnifiedHeapMarkingVisitor;
-
- private:
-  // Override and make the function empty, since we don't want to trace V8
-  // reference during cppgc's minor GC.
-  void Visit(const TracedReferenceBase&) final {}
 };
 
 }  // namespace internal

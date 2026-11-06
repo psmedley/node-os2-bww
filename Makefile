@@ -8,6 +8,7 @@ PREFIX ?= /usr/local
 FLAKY_TESTS ?= run
 TEST_CI_ARGS ?=
 STAGINGSERVER ?= node-www
+CLOUDFLARE_BUCKET ?= r2:dist-staging
 LOGLEVEL ?= silent
 OSTYPE := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 ifeq ($(findstring os/390,$OSTYPE),os/390)
@@ -169,8 +170,9 @@ with-code-cache test-code-cache:
 	$(warning '$@' target is a noop)
 
 out/Makefile: config.gypi common.gypi node.gyp \
-	deps/uv/uv.gyp deps/llhttp/llhttp.gyp deps/zlib/zlib.gyp \
-	tools/v8_gypfiles/toolchain.gypi tools/v8_gypfiles/features.gypi \
+	deps/*/*.gyp \
+	tools/v8_gypfiles/toolchain.gypi \
+	tools/v8_gypfiles/features.gypi \
 	tools/v8_gypfiles/inspector.gypi tools/v8_gypfiles/v8.gyp
 	$(PYTHON) tools/gyp_node.py -f make
 
@@ -248,7 +250,7 @@ coverage: coverage-test ## Run the tests and generate a coverage report.
 .PHONY: coverage-build
 coverage-build: all
 	-$(MAKE) coverage-build-js
-	if [ ! -d gcovr ]; then $(PYTHON) -m pip install -t gcovr gcovr==4.2; fi
+	if [ ! -d gcovr ]; then $(PYTHON) -m pip install -t gcovr gcovr==7.2; fi
 	$(MAKE)
 
 .PHONY: coverage-build-js
@@ -264,9 +266,10 @@ coverage-test: coverage-build
 	-NODE_V8_COVERAGE=coverage/tmp \
 		TEST_CI_ARGS="$(TEST_CI_ARGS) --type=coverage" $(MAKE) $(COVTESTS)
 	$(MAKE) coverage-report-js
-	-(cd out && PYTHONPATH=../gcovr $(PYTHON) -m gcovr \
-		--gcov-exclude='.*\b(deps|usr|out|cctest|embedding)\b' -v \
-		-r ../src/ --object-directory Release/obj.target \
+	-(PYTHONPATH=./gcovr $(PYTHON) -m gcovr \
+		--object-directory=out \
+		--filter src -v \
+		--root ./ \
 		--html --html-details -o ../coverage/cxxcoverage.html \
 		--gcov-executable="$(GCOV)")
 	@printf "Javascript coverage %%: "
@@ -365,6 +368,9 @@ test-check-deopts: all
 DOCBUILDSTAMP_PREREQS = tools/doc/addon-verify.mjs doc/api/addons.md
 
 ifeq ($(OSTYPE),aix)
+DOCBUILDSTAMP_PREREQS := $(DOCBUILDSTAMP_PREREQS) out/$(BUILDTYPE)/node.exp
+endif
+ifeq ($(OSTYPE),os400)
 DOCBUILDSTAMP_PREREQS := $(DOCBUILDSTAMP_PREREQS) out/$(BUILDTYPE)/node.exp
 endif
 
@@ -593,6 +599,12 @@ test-message: test-build
 .PHONY: test-wpt
 test-wpt: all
 	$(PYTHON) tools/test.py $(PARALLEL_ARGS) wpt
+
+.PHONY: test-wpt-report
+test-wpt-report:
+	$(RM) -r out/wpt
+	mkdir -p out/wpt
+	WPT_REPORT=1 $(PYTHON) tools/test.py --shell $(NODE) $(PARALLEL_ARGS) wpt
 
 .PHONY: test-simple
 test-simple: | cctest # Depends on 'all'.
@@ -1159,6 +1171,7 @@ pkg-upload: pkg
 	ssh $(STAGINGSERVER) "mkdir -p nodejs/$(DISTTYPEDIR)/$(FULLVERSION)"
 	chmod 664 $(TARNAME).pkg
 	scp -p $(TARNAME).pkg $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).pkg
+	ssh $(STAGINGSERVER) "rclone copyto nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).pkg $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).pkg"
 	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).pkg.done"
 
 $(TARBALL): release-only doc-only
@@ -1208,10 +1221,12 @@ tar-upload: tar
 	ssh $(STAGINGSERVER) "mkdir -p nodejs/$(DISTTYPEDIR)/$(FULLVERSION)"
 	chmod 664 $(TARNAME).tar.gz
 	scp -p $(TARNAME).tar.gz $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).tar.gz
+	ssh $(STAGINGSERVER) "rclone copyto nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).tar.gz $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).tar.gz"
 	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).tar.gz.done"
 ifeq ($(XZ), 1)
 	chmod 664 $(TARNAME).tar.xz
 	scp -p $(TARNAME).tar.xz $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).tar.xz
+	ssh $(STAGINGSERVER) "rclone copyto nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).tar.xz $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).tar.xz"
 	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).tar.xz.done"
 endif
 
@@ -1221,6 +1236,7 @@ doc-upload: doc
 	ssh $(STAGINGSERVER) "mkdir -p nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/docs/"
 	chmod -R ug=rw-x+X,o=r+X out/doc/
 	scp -pr out/doc/* $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/docs/
+	ssh $(STAGINGSERVER) "rclone copy nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/docs/ $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/docs/"
 	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/docs.done"
 
 .PHONY: $(TARBALL)-headers
@@ -1249,10 +1265,12 @@ tar-headers-upload: tar-headers
 	ssh $(STAGINGSERVER) "mkdir -p nodejs/$(DISTTYPEDIR)/$(FULLVERSION)"
 	chmod 664 $(TARNAME)-headers.tar.gz
 	scp -p $(TARNAME)-headers.tar.gz $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-headers.tar.gz
+	ssh $(STAGINGSERVER) "rclone copyto nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-headers.tar.gz $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-headers.tar.gz"
 	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-headers.tar.gz.done"
 ifeq ($(XZ), 1)
 	chmod 664 $(TARNAME)-headers.tar.xz
 	scp -p $(TARNAME)-headers.tar.xz $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-headers.tar.xz
+	ssh $(STAGINGSERVER) "rclone copyto nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-headers.tar.xz $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-headers.tar.xz"
 	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-headers.tar.xz.done"
 endif
 
@@ -1294,10 +1312,12 @@ binary-upload: binary
 	ssh $(STAGINGSERVER) "mkdir -p nodejs/$(DISTTYPEDIR)/$(FULLVERSION)"
 	chmod 664 $(TARNAME)-$(OSTYPE)-$(ARCH).tar.gz
 	scp -p $(TARNAME)-$(OSTYPE)-$(ARCH).tar.gz $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.gz
+	ssh $(STAGINGSERVER) "rclone copyto nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.gz $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.gz"
 	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.gz.done"
 ifeq ($(XZ), 1)
 	chmod 664 $(TARNAME)-$(OSTYPE)-$(ARCH).tar.xz
 	scp -p $(TARNAME)-$(OSTYPE)-$(ARCH).tar.xz $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.xz
+	ssh $(STAGINGSERVER) "rclone copyto nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.xz $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.xz"
 	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.xz.done"
 endif
 
@@ -1404,7 +1424,6 @@ LINT_CPP_ADDON_DOC_FILES = $(wildcard $(LINT_CPP_ADDON_DOC_FILES_GLOB))
 LINT_CPP_EXCLUDE ?=
 LINT_CPP_EXCLUDE += src/node_root_certs.h
 LINT_CPP_EXCLUDE += $(LINT_CPP_ADDON_DOC_FILES)
-LINT_CPP_EXCLUDE += $(wildcard test/js-native-api/??_*/*.cc test/js-native-api/??_*/*.h test/node-api/??_*/*.cc test/node-api/??_*/*.h)
 # These files were copied more or less verbatim from V8.
 LINT_CPP_EXCLUDE += src/tracing/trace_event.h src/tracing/trace_event_common.h
 
@@ -1424,9 +1443,7 @@ LINT_CPP_FILES = $(filter-out $(LINT_CPP_EXCLUDE), $(wildcard \
 	test/embedding/*.h \
 	test/fixtures/*.c \
 	test/js-native-api/*/*.cc \
-	test/js-native-api/*/*.h \
 	test/node-api/*/*.cc \
-	test/node-api/*/*.h \
 	tools/icu/*.cc \
 	tools/icu/*.h \
 	tools/code_cache/*.cc \
@@ -1434,6 +1451,18 @@ LINT_CPP_FILES = $(filter-out $(LINT_CPP_EXCLUDE), $(wildcard \
 	tools/snapshot/*.cc \
 	tools/snapshot/*.h \
 	))
+
+FORMAT_CPP_FILES ?=
+FORMAT_CPP_FILES += $(LINT_CPP_FILES)
+# C source codes.
+FORMAT_CPP_FILES += $(wildcard \
+	benchmark/napi/*/*.c \
+	test/js-native-api/*.h \
+	test/js-native-api/*/*.c \
+	test/js-native-api/*/*.h \
+	test/node-api/*/*.c \
+	test/node-api/*/*.h \
+	)
 
 # Code blocks don't have newline at the end,
 # and the actual filename is generated so it won't match header guards
@@ -1463,7 +1492,7 @@ ifneq ("","$(wildcard tools/clang-format/node_modules/)")
 		--binary=tools/clang-format/node_modules/.bin/clang-format \
 		--style=file \
 		$(CLANG_FORMAT_START) -- \
-		$(LINT_CPP_FILES)
+		$(FORMAT_CPP_FILES)
 else
 	$(info Required tooling for C++ code formatting is not installed.)
 	$(info To install (requires internet access) run: $$ make format-cpp-build)
@@ -1497,22 +1526,22 @@ cpplint: lint-cpp
 	$(warning Please use lint-cpp instead of cpplint)
 
 .PHONY: lint-py-build
-# python -m pip install flake8
+# python -m pip install ruff
 # Try with '--system' if it fails without; the system may have set '--user'
 lint-py-build:
-	$(info Pip installing flake8 linter on $(shell $(PYTHON) --version)...)
-	$(PYTHON) -m pip install --no-user --upgrade -t tools/pip/site-packages flake8 || \
-		$(PYTHON) -m pip install --no-user --upgrade --system -t tools/pip/site-packages flake8
+	$(info Pip installing ruff on $(shell $(PYTHON) --version)...)
+	$(PYTHON) -m pip install --upgrade --target tools/pip/site-packages ruff==0.0.272 || \
+		$(PYTHON) -m pip install --upgrade --system --target tools/pip/site-packages ruff==0.0.272
 
 .PHONY: lint-py
-ifneq ("","$(wildcard tools/pip/site-packages/flake8)")
-# Lints the Python code with flake8.
-# Flag the build if there are Python syntax errors or undefined names
+ifneq ("","$(wildcard tools/pip/site-packages/ruff)")
+# Lint the Python code with ruff.
 lint-py:
-	PYTHONPATH=tools/pip $(PYTHON) -m flake8 --count --show-source --statistics .
+	tools/pip/site-packages/bin/ruff --version
+	tools/pip/site-packages/bin/ruff .
 else
 lint-py:
-	$(warning Python linting with flake8 is not available)
+	$(warning Python linting with ruff is not available)
 	$(warning Run 'make lint-py-build')
 endif
 
@@ -1521,8 +1550,8 @@ endif
 # Try with '--system' if it fails without; the system may have set '--user'
 lint-yaml-build:
 	$(info Pip installing yamllint on $(shell $(PYTHON) --version)...)
-	$(PYTHON) -m pip install --no-user --upgrade -t tools/pip/site-packages yamllint || \
-		$(PYTHON) -m pip install --no-user --upgrade --system -t tools/pip/site-packages yamllint
+	$(PYTHON) -m pip install --upgrade -t tools/pip/site-packages yamllint || \
+		$(PYTHON) -m pip install --upgrade --system -t tools/pip/site-packages yamllint
 
 .PHONY: lint-yaml
 # Lints the YAML files with yamllint.
@@ -1549,7 +1578,7 @@ CONFLICT_RE=^>>>>>>> [[:xdigit:]]+|^<<<<<<< [[:alpha:]]+
 
 # Related CI job: node-test-linter
 lint-ci: lint-js-ci lint-cpp lint-py lint-md lint-addon-docs lint-yaml-build lint-yaml
-	@if ! ( grep -IEqrs "$(CONFLICT_RE)" --exclude="error-message.js" benchmark deps doc lib src test tools ) \
+	@if ! ( grep -IEqrs "$(CONFLICT_RE)" --exclude="error-message.js" --exclude="merge-conflict.json" benchmark deps doc lib src test tools ) \
 		&& ! ( $(FIND) . -maxdepth 1 -type f | xargs grep -IEqs "$(CONFLICT_RE)" ); then \
 		exit 0 ; \
 	else \

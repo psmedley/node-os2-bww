@@ -5,6 +5,7 @@
 #ifndef V8_COMPILER_PROCESSED_FEEDBACK_H_
 #define V8_COMPILER_PROCESSED_FEEDBACK_H_
 
+#include "src/compiler/feedback-source.h"
 #include "src/compiler/heap-refs.h"
 
 namespace v8 {
@@ -19,7 +20,6 @@ class ForInFeedback;
 class GlobalAccessFeedback;
 class InstanceOfFeedback;
 class LiteralFeedback;
-class MegaDOMPropertyAccessFeedback;
 class NamedAccessFeedback;
 class RegExpLiteralFeedback;
 class TemplateObjectFeedback;
@@ -36,7 +36,6 @@ class ProcessedFeedback : public ZoneObject {
     kGlobalAccess,
     kInstanceOf,
     kLiteral,
-    kMegaDOMPropertyAccess,
     kNamedAccess,
     kRegExpLiteral,
     kTemplateObject,
@@ -54,7 +53,6 @@ class ProcessedFeedback : public ZoneObject {
   GlobalAccessFeedback const& AsGlobalAccess() const;
   InstanceOfFeedback const& AsInstanceOf() const;
   NamedAccessFeedback const& AsNamedAccess() const;
-  MegaDOMPropertyAccessFeedback const& AsMegaDOMPropertyAccess() const;
   LiteralFeedback const& AsLiteral() const;
   RegExpLiteralFeedback const& AsRegExpLiteral() const;
   TemplateObjectFeedback const& AsTemplateObject() const;
@@ -169,17 +167,6 @@ class NamedAccessFeedback : public ProcessedFeedback {
  private:
   NameRef const name_;
   ZoneVector<MapRef> const maps_;
-};
-
-class MegaDOMPropertyAccessFeedback : public ProcessedFeedback {
- public:
-  MegaDOMPropertyAccessFeedback(FunctionTemplateInfoRef info_ref,
-                                FeedbackSlotKind slot_kind);
-
-  FunctionTemplateInfoRef const& info() const { return info_; }
-
- private:
-  FunctionTemplateInfoRef const info_;
 };
 
 class CallFeedback : public ProcessedFeedback {
