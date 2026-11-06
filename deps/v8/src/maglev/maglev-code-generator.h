@@ -12,12 +12,11 @@ namespace internal {
 namespace maglev {
 
 class Graph;
-class MaglevCompilationInfo;
+class MaglevCompilationUnit;
 
 class MaglevCodeGenerator : public AllStatic {
  public:
-  static MaybeHandle<Code> Generate(Isolate* isolate,
-                                    MaglevCompilationInfo* compilation_info,
+  static MaybeHandle<Code> Generate(MaglevCompilationUnit* compilation_unit,
                                     Graph* graph);
 };
 

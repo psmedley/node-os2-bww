@@ -5,7 +5,10 @@
 #ifndef V8_RUNTIME_RUNTIME_UTILS_H_
 #define V8_RUNTIME_RUNTIME_UTILS_H_
 
+#include "src/base/logging.h"
+#include "src/common/globals.h"
 #include "src/objects/objects.h"
+#include "src/runtime/runtime.h"
 
 namespace v8 {
 namespace internal {

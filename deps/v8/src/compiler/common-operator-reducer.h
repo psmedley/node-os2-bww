@@ -6,6 +6,7 @@
 #define V8_COMPILER_COMMON_OPERATOR_REDUCER_H_
 
 #include "src/base/compiler-specific.h"
+#include "src/common/globals.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/graph-reducer.h"
 

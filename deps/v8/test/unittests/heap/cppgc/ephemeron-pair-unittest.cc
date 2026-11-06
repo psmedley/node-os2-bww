@@ -49,8 +49,11 @@ class EphemeronHolderTraceEphemeron
 };
 
 class EphemeronPairTest : public testing::TestWithHeap {
-  static constexpr MarkingConfig IncrementalPreciseMarkingConfig = {
-      CollectionType::kMajor, StackState::kNoHeapPointers,
+  using MarkingConfig = Marker::MarkingConfig;
+
+  static constexpr Marker::MarkingConfig IncrementalPreciseMarkingConfig = {
+      MarkingConfig::CollectionType::kMajor,
+      MarkingConfig::StackState::kNoHeapPointers,
       MarkingConfig::MarkingType::kIncremental};
 
  public:
@@ -60,11 +63,10 @@ class EphemeronPairTest : public testing::TestWithHeap {
   }
 
   void FinishMarking() {
-    marker_->FinishMarking(StackState::kNoHeapPointers);
+    marker_->FinishMarking(MarkingConfig::StackState::kNoHeapPointers);
     // Pretend do finish sweeping as StatsCollector verifies that Notify*
     // methods are called in the right order.
-    Heap::From(GetHeap())->stats_collector()->NotifySweepingCompleted(
-        GCConfig::SweepingType::kIncremental);
+    Heap::From(GetHeap())->stats_collector()->NotifySweepingCompleted();
   }
 
   void InitializeMarker(HeapBase& heap, cppgc::Platform* platform) {
@@ -78,14 +80,15 @@ class EphemeronPairTest : public testing::TestWithHeap {
  private:
   bool SingleStep() {
     return marker_->IncrementalMarkingStepForTesting(
-        StackState::kNoHeapPointers);
+        MarkingConfig::StackState::kNoHeapPointers);
   }
 
   std::unique_ptr<Marker> marker_;
 };
 
 // static
-constexpr MarkingConfig EphemeronPairTest::IncrementalPreciseMarkingConfig;
+constexpr Marker::MarkingConfig
+    EphemeronPairTest::IncrementalPreciseMarkingConfig;
 
 }  // namespace
 

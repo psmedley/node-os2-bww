@@ -48,6 +48,7 @@ constexpr double kMB = 1024 * 1024;
 Worker::Worker(Environment* env,
                Local<Object> wrap,
                const std::string& url,
+               const std::string& name,
                std::shared_ptr<PerIsolateOptions> per_isolate_opts,
                std::vector<std::string>&& exec_argv,
                std::shared_ptr<KVStore> env_vars,
@@ -57,6 +58,7 @@ Worker::Worker(Environment* env,
       exec_argv_(exec_argv),
       platform_(env->isolate_data()->platform()),
       thread_id_(AllocateEnvironmentThreadId()),
+      name_(name),
       env_vars_(env_vars),
       snapshot_data_(snapshot_data) {
   Debug(this, "Creating new worker instance with thread id %llu",
@@ -81,8 +83,8 @@ Worker::Worker(Environment* env,
                 Number::New(env->isolate(), static_cast<double>(thread_id_.id)))
       .Check();
 
-  inspector_parent_handle_ = GetInspectorParentHandle(
-      env, thread_id_, url.c_str());
+  inspector_parent_handle_ =
+      GetInspectorParentHandle(env, thread_id_, url.c_str(), name.c_str());
 
   argv_ = std::vector<std::string>{env->argv()[0]};
   // Mark this Worker object as weak until we actually start the thread.
@@ -137,8 +139,7 @@ class WorkerThreadData {
     if (ret != 0) {
       char err_buf[128];
       uv_err_name_r(ret, err_buf, sizeof(err_buf));
-      // TODO(joyeecheung): maybe this should be kBootstrapFailure instead?
-      w->Exit(ExitCode::kGenericUserError, "ERR_WORKER_INIT_FAILED", err_buf);
+      w->Exit(1, "ERR_WORKER_INIT_FAILED", err_buf);
       return;
     }
     loop_init_failed_ = false;
@@ -148,24 +149,15 @@ class WorkerThreadData {
         ArrayBufferAllocator::Create();
     Isolate::CreateParams params;
     SetIsolateCreateParamsForNode(&params);
-    params.array_buffer_allocator_shared = allocator;
-
-    if (w->snapshot_data() != nullptr) {
-      SnapshotBuilder::InitializeIsolateParams(w->snapshot_data(), &params);
-    }
     w->UpdateResourceConstraints(&params.constraints);
-
-    Isolate* isolate = Isolate::Allocate();
+    params.array_buffer_allocator_shared = allocator;
+    Isolate* isolate =
+        NewIsolate(&params, &loop_, w->platform_, w->snapshot_data());
     if (isolate == nullptr) {
-      // TODO(joyeecheung): maybe this should be kBootstrapFailure instead?
-      w->Exit(ExitCode::kGenericUserError,
-              "ERR_WORKER_INIT_FAILED",
-              "Failed to create new Isolate");
+      w->Exit(1, "ERR_WORKER_INIT_FAILED", "Failed to create new Isolate");
       return;
     }
 
-    w->platform_->RegisterIsolate(isolate, &loop_);
-    Isolate::Initialize(isolate, params);
     SetIsolateUpForNode(isolate);
 
     // Be sure it's called before Environment::InitializeDiagnostics()
@@ -261,19 +253,15 @@ size_t Worker::NearHeapLimit(void* data, size_t current_heap_limit,
           "new_limit=%" PRIu64 "\n",
           static_cast<uint64_t>(new_limit));
   }
-  // TODO(joyeecheung): maybe this should be kV8FatalError instead?
-  worker->Exit(ExitCode::kGenericUserError,
-               "ERR_WORKER_OUT_OF_MEMORY",
-               "JS heap out of memory");
+  worker->Exit(1, "ERR_WORKER_OUT_OF_MEMORY", "JS heap out of memory");
   return new_limit;
 }
 
 void Worker::Run() {
-  std::string name = "WorkerThread ";
-  name += std::to_string(thread_id_.id);
+  std::string trace_name = "[worker " + std::to_string(thread_id_.id) + "]" +
+                           (name_ == "" ? "" : " " + name_);
   TRACE_EVENT_METADATA1(
-      "__metadata", "thread_name", "name",
-      TRACE_STR_COPY(name.c_str()));
+      "__metadata", "thread_name", "name", TRACE_STR_COPY(trace_name.c_str()));
   CHECK_NOT_NULL(platform_);
 
   Debug(this, "Creating isolate for worker with id %llu", thread_id_.id);
@@ -329,10 +317,7 @@ void Worker::Run() {
           context = NewContext(isolate_);
         }
         if (context.IsEmpty()) {
-          // TODO(joyeecheung): maybe this should be kBootstrapFailure instead?
-          Exit(ExitCode::kGenericUserError,
-               "ERR_WORKER_INIT_FAILED",
-               "Failed to create new Context");
+          Exit(1, "ERR_WORKER_INIT_FAILED", "Failed to create new Context");
           return;
         }
       }
@@ -353,7 +338,7 @@ void Worker::Run() {
         CHECK_NOT_NULL(env_);
         env_->set_env_vars(std::move(env_vars_));
         SetProcessExitHandler(env_.get(), [this](Environment*, int exit_code) {
-          Exit(static_cast<ExitCode>(exit_code));
+          Exit(exit_code);
         });
       }
       {
@@ -377,16 +362,14 @@ void Worker::Run() {
     }
 
     {
-      Maybe<ExitCode> exit_code = SpinEventLoopInternal(env_.get());
+      Maybe<int> exit_code = SpinEventLoop(env_.get());
       Mutex::ScopedLock lock(mutex_);
-      if (exit_code_ == ExitCode::kNoFailure && exit_code.IsJust()) {
+      if (exit_code_ == 0 && exit_code.IsJust()) {
         exit_code_ = exit_code.FromJust();
       }
 
-      Debug(this,
-            "Exiting thread for worker %llu with exit code %d",
-            thread_id_.id,
-            static_cast<int>(exit_code_));
+      Debug(this, "Exiting thread for worker %llu with exit code %d",
+            thread_id_.id, exit_code_);
     }
   }
 
@@ -431,7 +414,7 @@ void Worker::JoinThread() {
                   Undefined(env()->isolate())).Check();
 
     Local<Value> args[] = {
-        Integer::New(env()->isolate(), static_cast<int>(exit_code_)),
+        Integer::New(env()->isolate(), exit_code_),
         custom_error_ != nullptr
             ? OneByteString(env()->isolate(), custom_error_).As<Value>()
             : Null(env()->isolate()).As<Value>(),
@@ -462,6 +445,8 @@ Worker::~Worker() {
 
 void Worker::New(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
+  auto is_internal = args[5];
+  CHECK(is_internal->IsBoolean());
   Isolate* isolate = args.GetIsolate();
 
   CHECK(args.IsConstructCall());
@@ -472,6 +457,7 @@ void Worker::New(const FunctionCallbackInfo<Value>& args) {
   }
 
   std::string url;
+  std::string name;
   std::shared_ptr<PerIsolateOptions> per_isolate_opts = nullptr;
   std::shared_ptr<KVStore> env_vars = nullptr;
 
@@ -482,6 +468,12 @@ void Worker::New(const FunctionCallbackInfo<Value>& args) {
     Utf8Value value(
         isolate, args[0]->ToString(env->context()).FromMaybe(Local<String>()));
     url.append(value.out(), value.length());
+  }
+
+  if (!args[6]->IsNullOrUndefined()) {
+    Utf8Value value(
+        isolate, args[6]->ToString(env->context()).FromMaybe(Local<String>()));
+    name.append(value.out(), value.length());
   }
 
   if (args[1]->IsNull()) {
@@ -596,6 +588,7 @@ void Worker::New(const FunctionCallbackInfo<Value>& args) {
   Worker* worker = new Worker(env,
                               args.This(),
                               url,
+                              name,
                               per_isolate_opts,
                               std::move(exec_argv_out),
                               env_vars,
@@ -695,7 +688,7 @@ void Worker::StopThread(const FunctionCallbackInfo<Value>& args) {
   ASSIGN_OR_RETURN_UNWRAP(&w, args.This());
 
   Debug(w, "Worker %llu is getting stopped by parent", w->thread_id_.id);
-  w->Exit(ExitCode::kGenericUserError);
+  w->Exit(1);
 }
 
 void Worker::Ref(const FunctionCallbackInfo<Value>& args) {
@@ -735,16 +728,10 @@ Local<Float64Array> Worker::GetResourceLimits(Isolate* isolate) const {
   return Float64Array::New(ab, 0, kTotalResourceLimitCount);
 }
 
-void Worker::Exit(ExitCode code,
-                  const char* error_code,
-                  const char* error_message) {
+void Worker::Exit(int code, const char* error_code, const char* error_message) {
   Mutex::ScopedLock lock(mutex_);
-  Debug(this,
-        "Worker %llu called Exit(%d, %s, %s)",
-        thread_id_.id,
-        static_cast<int>(code),
-        error_code,
-        error_message);
+  Debug(this, "Worker %llu called Exit(%d, %s, %s)",
+        thread_id_.id, code, error_code, error_message);
 
   if (error_code != nullptr) {
     custom_error_ = error_code;
@@ -778,8 +765,6 @@ class WorkerHeapSnapshotTaker : public AsyncWrap {
 void Worker::TakeHeapSnapshot(const FunctionCallbackInfo<Value>& args) {
   Worker* w;
   ASSIGN_OR_RETURN_UNWRAP(&w, args.This());
-  CHECK_EQ(args.Length(), 1);
-  auto options = heap::GetHeapSnapshotOptions(args[0]);
 
   Debug(w, "Worker %llu taking heap snapshot", w->thread_id_.id);
 
@@ -799,10 +784,10 @@ void Worker::TakeHeapSnapshot(const FunctionCallbackInfo<Value>& args) {
 
   // Interrupt the worker thread and take a snapshot, then schedule a call
   // on the parent thread that turns that snapshot into a readable stream.
-  bool scheduled = w->RequestInterrupt([taker = std::move(taker), env, options](
-                                           Environment* worker_env) mutable {
+  bool scheduled = w->RequestInterrupt([taker = std::move(taker),
+                                        env](Environment* worker_env) mutable {
     heap::HeapSnapshotPointer snapshot{
-        worker_env->isolate()->GetHeapProfiler()->TakeHeapSnapshot(options)};
+        worker_env->isolate()->GetHeapProfiler()->TakeHeapSnapshot()};
     CHECK(snapshot);
 
     // Here, the worker thread temporarily owns the WorkerHeapSnapshotTaker
@@ -864,7 +849,8 @@ void Worker::LoopStartTime(const FunctionCallbackInfo<Value>& args) {
   double loop_start_time = w->env_->performance_state()->milestones[
       node::performance::NODE_PERFORMANCE_MILESTONE_LOOP_START];
   CHECK_GE(loop_start_time, 0);
-  args.GetReturnValue().Set(loop_start_time / 1e6);
+  args.GetReturnValue().Set(
+      (loop_start_time - node::performance::timeOrigin) / 1e6);
 }
 
 namespace {

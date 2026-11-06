@@ -20,7 +20,6 @@
 #include "src/heap/concurrent-allocator-inl.h"
 #include "src/heap/heap.h"
 #include "src/heap/local-heap-inl.h"
-#include "src/heap/marking-state-inl.h"
 #include "src/heap/parked-scope.h"
 #include "src/heap/safepoint.h"
 #include "src/objects/heap-number.h"
@@ -73,7 +72,6 @@ class ConcurrentAllocationThread final : public v8::base::Thread {
         pending_(pending) {}
 
   void Run() override {
-    RwxMemoryWriteScope::SetDefaultPermissionsForNewThread();
     LocalHeap local_heap(heap_, ThreadKind::kBackground);
     UnparkedScope unparked_scope(&local_heap);
     AllocateSomeObjects(&local_heap);
@@ -85,8 +83,8 @@ class ConcurrentAllocationThread final : public v8::base::Thread {
 };
 
 UNINITIALIZED_TEST(ConcurrentAllocationInOldSpace) {
-  v8_flags.max_old_space_size = 32;
-  v8_flags.stress_concurrent_allocation = false;
+  FLAG_max_old_space_size = 32;
+  FLAG_stress_concurrent_allocation = false;
 
   v8::Isolate::CreateParams create_params;
   create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
@@ -118,8 +116,8 @@ UNINITIALIZED_TEST(ConcurrentAllocationInOldSpace) {
 }
 
 UNINITIALIZED_TEST(ConcurrentAllocationInOldSpaceFromMainThread) {
-  v8_flags.max_old_space_size = 4;
-  v8_flags.stress_concurrent_allocation = false;
+  FLAG_max_old_space_size = 4;
+  FLAG_stress_concurrent_allocation = false;
 
   v8::Isolate::CreateParams create_params;
   create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
@@ -132,8 +130,8 @@ UNINITIALIZED_TEST(ConcurrentAllocationInOldSpaceFromMainThread) {
 }
 
 UNINITIALIZED_TEST(ConcurrentAllocationWhileMainThreadIsParked) {
-  v8_flags.max_old_space_size = 4;
-  v8_flags.stress_concurrent_allocation = false;
+  FLAG_max_old_space_size = 4;
+  FLAG_stress_concurrent_allocation = false;
 
   v8::Isolate::CreateParams create_params;
   create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
@@ -162,9 +160,9 @@ UNINITIALIZED_TEST(ConcurrentAllocationWhileMainThreadIsParked) {
 }
 
 UNINITIALIZED_TEST(ConcurrentAllocationWhileMainThreadParksAndUnparks) {
-  v8_flags.max_old_space_size = 4;
-  v8_flags.stress_concurrent_allocation = false;
-  v8_flags.incremental_marking = false;
+  FLAG_max_old_space_size = 4;
+  FLAG_stress_concurrent_allocation = false;
+  FLAG_incremental_marking = false;
 
   v8::Isolate::CreateParams create_params;
   create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
@@ -197,9 +195,9 @@ UNINITIALIZED_TEST(ConcurrentAllocationWhileMainThreadParksAndUnparks) {
 }
 
 UNINITIALIZED_TEST(ConcurrentAllocationWhileMainThreadRunsWithSafepoints) {
-  v8_flags.max_old_space_size = 4;
-  v8_flags.stress_concurrent_allocation = false;
-  v8_flags.incremental_marking = false;
+  FLAG_max_old_space_size = 4;
+  FLAG_stress_concurrent_allocation = false;
+  FLAG_incremental_marking = false;
 
   v8::Isolate::CreateParams create_params;
   create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
@@ -251,7 +249,7 @@ class LargeObjectConcurrentAllocationThread final : public v8::base::Thread {
           kLargeObjectSize, AllocationType::kOld, AllocationOrigin::kRuntime,
           AllocationAlignment::kTaggedAligned);
       if (result.IsFailure()) {
-        heap_->CollectGarbageFromAnyThread(&local_heap);
+        local_heap.TryPerformCollection();
       } else {
         Address address = result.ToAddress();
         CreateFixedArray(heap_, address, kLargeObjectSize);
@@ -267,8 +265,8 @@ class LargeObjectConcurrentAllocationThread final : public v8::base::Thread {
 };
 
 UNINITIALIZED_TEST(ConcurrentAllocationInLargeSpace) {
-  v8_flags.max_old_space_size = 32;
-  v8_flags.stress_concurrent_allocation = false;
+  FLAG_max_old_space_size = 32;
+  FLAG_stress_concurrent_allocation = false;
 
   v8::Isolate::CreateParams create_params;
   create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
@@ -342,7 +340,7 @@ class ConcurrentBlackAllocationThread final : public v8::base::Thread {
 };
 
 UNINITIALIZED_TEST(ConcurrentBlackAllocation) {
-  if (!v8_flags.incremental_marking) return;
+  if (!FLAG_incremental_marking) return;
   v8::Isolate::CreateParams create_params;
   create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
   v8::Isolate* isolate = v8::Isolate::New(create_params);
@@ -372,9 +370,9 @@ UNINITIALIZED_TEST(ConcurrentBlackAllocation) {
     HeapObject object = HeapObject::FromAddress(address);
 
     if (i < kWhiteIterations * kObjectsAllocatedPerIteration) {
-      CHECK(heap->marking_state()->IsWhite(object));
+      CHECK(heap->incremental_marking()->marking_state()->IsWhite(object));
     } else {
-      CHECK(heap->marking_state()->IsBlack(object));
+      CHECK(heap->incremental_marking()->marking_state()->IsBlack(object));
     }
   }
 
@@ -402,8 +400,8 @@ class ConcurrentWriteBarrierThread final : public v8::base::Thread {
 };
 
 UNINITIALIZED_TEST(ConcurrentWriteBarrier) {
-  if (!v8_flags.incremental_marking) return;
-  if (!v8_flags.concurrent_marking) {
+  if (!FLAG_incremental_marking) return;
+  if (!FLAG_concurrent_marking) {
     // The test requires concurrent marking barrier.
     return;
   }
@@ -428,7 +426,7 @@ UNINITIALIZED_TEST(ConcurrentWriteBarrier) {
   }
   heap->StartIncrementalMarking(i::Heap::kNoGCFlags,
                                 i::GarbageCollectionReason::kTesting);
-  CHECK(heap->marking_state()->IsWhite(value));
+  CHECK(heap->incremental_marking()->marking_state()->IsWhite(value));
 
   auto thread =
       std::make_unique<ConcurrentWriteBarrierThread>(heap, fixed_array, value);
@@ -436,7 +434,7 @@ UNINITIALIZED_TEST(ConcurrentWriteBarrier) {
 
   thread->Join();
 
-  CHECK(heap->marking_state()->IsBlackOrGrey(value));
+  CHECK(heap->incremental_marking()->marking_state()->IsBlackOrGrey(value));
   heap::InvokeMarkSweep(i_isolate);
 
   isolate->Dispose();
@@ -452,11 +450,8 @@ class ConcurrentRecordRelocSlotThread final : public v8::base::Thread {
         value_(value) {}
 
   void Run() override {
-    RwxMemoryWriteScope::SetDefaultPermissionsForNewThread();
     LocalHeap local_heap(heap_, ThreadKind::kBackground);
     UnparkedScope unparked_scope(&local_heap);
-    // Modification of Code object requires write access.
-    RwxMemoryWriteScopeForTesting rwx_write_scope;
     int mode_mask = RelocInfo::EmbeddedObjectModeMask();
     for (RelocIterator it(code_, mode_mask); !it.done(); it.next()) {
       DCHECK(RelocInfo::IsEmbeddedObjectMode(it.rinfo()->rmode()));
@@ -470,12 +465,12 @@ class ConcurrentRecordRelocSlotThread final : public v8::base::Thread {
 };
 
 UNINITIALIZED_TEST(ConcurrentRecordRelocSlot) {
-  if (!v8_flags.incremental_marking) return;
-  if (!v8_flags.concurrent_marking) {
+  if (!FLAG_incremental_marking) return;
+  if (!FLAG_concurrent_marking) {
     // The test requires concurrent marking barrier.
     return;
   }
-  v8_flags.manual_evacuation_candidates_selection = true;
+  FLAG_manual_evacuation_candidates_selection = true;
   ManualGCScope manual_gc_scope;
 
   v8::Isolate::CreateParams create_params;
@@ -486,7 +481,7 @@ UNINITIALIZED_TEST(ConcurrentRecordRelocSlot) {
   {
     Code code;
     HeapObject value;
-    CodePageCollectionMemoryModificationScopeForTesting code_scope(heap);
+    CodePageCollectionMemoryModificationScope modification_scope(heap);
     {
       HandleScope handle_scope(i_isolate);
       i::byte buffer[i::Assembler::kDefaultBufferSize];
@@ -514,13 +509,9 @@ UNINITIALIZED_TEST(ConcurrentRecordRelocSlot) {
     }
     heap->StartIncrementalMarking(i::Heap::kNoGCFlags,
                                   i::GarbageCollectionReason::kTesting);
-    CHECK(heap->marking_state()->IsWhite(value));
+    CHECK(heap->incremental_marking()->marking_state()->IsWhite(value));
 
     {
-      // TODO(v8:13023): remove ResetPKUPermissionsForThreadSpawning in the
-      // future when RwxMemoryWriteScope::SetDefaultPermissionsForNewThread() is
-      // stable.
-      ResetPKUPermissionsForThreadSpawning thread_scope;
       auto thread =
           std::make_unique<ConcurrentRecordRelocSlotThread>(heap, code, value);
       CHECK(thread->Start());
@@ -528,7 +519,7 @@ UNINITIALIZED_TEST(ConcurrentRecordRelocSlot) {
       thread->Join();
     }
 
-    CHECK(heap->marking_state()->IsBlackOrGrey(value));
+    CHECK(heap->incremental_marking()->marking_state()->IsBlackOrGrey(value));
     heap::InvokeMarkSweep(i_isolate);
   }
   isolate->Dispose();

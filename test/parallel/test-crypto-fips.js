@@ -77,21 +77,17 @@ testHelper(
   'process.versions',
   process.env);
 
-// By default FIPS should be off in both FIPS and non-FIPS builds.
-testHelper(
-  'stdout',
-  [],
-  FIPS_DISABLED,
-  'require("crypto").getFips()',
-  { ...process.env, 'OPENSSL_CONF': ' ' });
-
-// Toggling fips with setFips should not be allowed from a worker thread
-testHelper(
-  'stderr',
-  [],
-  'Calling crypto.setFips() is not supported in workers',
-  'new worker_threads.Worker(\'require("crypto").setFips(true);\', { eval: true })',
-  process.env);
+// By default FIPS should be off in both FIPS and non-FIPS builds
+// unless Node.js was configured using --shared-openssl in
+// which case it may be enabled by the system.
+if (!sharedOpenSSL()) {
+  testHelper(
+    'stdout',
+    [],
+    FIPS_DISABLED,
+    'require("crypto").getFips()',
+    { ...process.env, 'OPENSSL_CONF': ' ' });
+}
 
 // This should succeed for both FIPS and non-FIPS builds in combination with
 // OpenSSL 1.1.1 or OpenSSL 3.0

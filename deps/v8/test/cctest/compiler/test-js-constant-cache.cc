@@ -8,7 +8,7 @@
 #include "src/compiler/node-properties.h"
 #include "src/heap/factory-inl.h"
 #include "test/cctest/cctest.h"
-#include "test/common/value-helper.h"
+#include "test/cctest/compiler/value-helper.h"
 
 namespace v8 {
 namespace internal {
@@ -87,12 +87,10 @@ TEST(MinusZeroConstant) {
   double zero_value = OpParameter<double>(zero->op());
   double minus_zero_value = OpParameter<double>(minus_zero->op());
 
-  CHECK(base::bit_cast<uint64_t>(0.0) == base::bit_cast<uint64_t>(zero_value));
-  CHECK(base::bit_cast<uint64_t>(-0.0) != base::bit_cast<uint64_t>(zero_value));
-  CHECK(base::bit_cast<uint64_t>(0.0) !=
-        base::bit_cast<uint64_t>(minus_zero_value));
-  CHECK(base::bit_cast<uint64_t>(-0.0) ==
-        base::bit_cast<uint64_t>(minus_zero_value));
+  CHECK(bit_cast<uint64_t>(0.0) == bit_cast<uint64_t>(zero_value));
+  CHECK(bit_cast<uint64_t>(-0.0) != bit_cast<uint64_t>(zero_value));
+  CHECK(bit_cast<uint64_t>(0.0) != bit_cast<uint64_t>(minus_zero_value));
+  CHECK(bit_cast<uint64_t>(-0.0) == bit_cast<uint64_t>(minus_zero_value));
 }
 
 

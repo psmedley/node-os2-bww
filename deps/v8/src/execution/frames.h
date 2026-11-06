@@ -22,13 +22,10 @@
 //         - InterpretedFrame
 //         - BaselineFrame
 //       - OptimizedFrame
-//         - MaglevFrame
-//         - TurboFanFrame
 //     - TypedFrameWithJSLinkage
 //       - BuiltinFrame
 //       - JavaScriptBuiltinContinuationFrame
 //         - JavaScriptBuiltinContinuationWithCatchFrame
-//   - TurbofanStubWithContextFrame
 //   - TypedFrame
 //     - NativeFrame
 //     - EntryFrame
@@ -43,7 +40,6 @@
 //       - BuiltinContinuationFrame
 //     - WasmFrame
 //       - WasmExitFrame
-//       - WasmToJsFrame
 //     - WasmDebugBreakFrame
 //     - WasmCompileLazyFrame
 //
@@ -105,7 +101,6 @@ class StackHandler {
   V(EXIT, ExitFrame)                                                      \
   IF_WASM(V, WASM, WasmFrame)                                             \
   IF_WASM(V, WASM_TO_JS, WasmToJsFrame)                                   \
-  IF_WASM(V, WASM_TO_JS_FUNCTION, WasmToJsFunctionFrame)                  \
   IF_WASM(V, JS_TO_WASM, JsToWasmFrame)                                   \
   IF_WASM(V, STACK_SWITCH, StackSwitchFrame)                              \
   IF_WASM(V, WASM_DEBUG_BREAK, WasmDebugBreakFrame)                       \
@@ -114,10 +109,8 @@ class StackHandler {
   IF_WASM(V, WASM_COMPILE_LAZY, WasmCompileLazyFrame)                     \
   V(INTERPRETED, InterpretedFrame)                                        \
   V(BASELINE, BaselineFrame)                                              \
-  V(MAGLEV, MaglevFrame)                                                  \
-  V(TURBOFAN, TurbofanFrame)                                              \
+  V(OPTIMIZED, OptimizedFrame)                                            \
   V(STUB, StubFrame)                                                      \
-  V(TURBOFAN_STUB_WITH_CONTEXT, TurbofanStubWithContextFrame)             \
   V(BUILTIN_CONTINUATION, BuiltinContinuationFrame)                       \
   V(JAVA_SCRIPT_BUILTIN_CONTINUATION, JavaScriptBuiltinContinuationFrame) \
   V(JAVA_SCRIPT_BUILTIN_CONTINUATION_WITH_CATCH,                          \
@@ -149,8 +142,8 @@ class StackFrame {
     INNER_JSENTRY_FRAME = (0 << kSmiTagSize) | kSmiTag,
     OUTERMOST_JSENTRY_FRAME = (1 << kSmiTagSize) | kSmiTag
   };
-  static_assert((INNER_JSENTRY_FRAME & kHeapObjectTagMask) != kHeapObjectTag);
-  static_assert((OUTERMOST_JSENTRY_FRAME & kHeapObjectTagMask) !=
+  STATIC_ASSERT((INNER_JSENTRY_FRAME & kHeapObjectTagMask) != kHeapObjectTag);
+  STATIC_ASSERT((OUTERMOST_JSENTRY_FRAME & kHeapObjectTagMask) !=
                 kHeapObjectTag);
 
   struct State {
@@ -188,7 +181,7 @@ class StackFrame {
     // invalid frame markers.
 #if (defined(USE_SIMULATOR) &&                        \
      (V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_ARM)) || \
-    (V8_TARGET_ARCH_RISCV32 || V8_TARGET_ARCH_RISCV64)
+    V8_TARGET_ARCH_RISCV64
     if (static_cast<uintptr_t>(type) >= Type::NUMBER_OF_TYPES) {
       // Appease UBSan.
       return Type::NUMBER_OF_TYPES;
@@ -220,26 +213,19 @@ class StackFrame {
   bool is_entry() const { return type() == ENTRY; }
   bool is_construct_entry() const { return type() == CONSTRUCT_ENTRY; }
   bool is_exit() const { return type() == EXIT; }
-  bool is_optimized() const {
-    static_assert(TURBOFAN == MAGLEV + 1);
-    return base::IsInRange(type(), MAGLEV, TURBOFAN);
-  }
+  bool is_optimized() const { return type() == OPTIMIZED; }
   bool is_unoptimized() const {
-    static_assert(BASELINE == INTERPRETED + 1);
+    STATIC_ASSERT(BASELINE == INTERPRETED + 1);
     return base::IsInRange(type(), INTERPRETED, BASELINE);
   }
   bool is_interpreted() const { return type() == INTERPRETED; }
   bool is_baseline() const { return type() == BASELINE; }
-  bool is_maglev() const { return type() == MAGLEV; }
-  bool is_turbofan() const { return type() == TURBOFAN; }
 #if V8_ENABLE_WEBASSEMBLY
   bool is_wasm() const { return this->type() == WASM; }
   bool is_c_wasm_entry() const { return type() == C_WASM_ENTRY; }
   bool is_wasm_compile_lazy() const { return type() == WASM_COMPILE_LAZY; }
   bool is_wasm_debug_break() const { return type() == WASM_DEBUG_BREAK; }
-  bool is_wasm_to_js() const {
-    return type() == WASM_TO_JS || type() == WASM_TO_JS_FUNCTION;
-  }
+  bool is_wasm_to_js() const { return type() == WASM_TO_JS; }
   bool is_js_to_wasm() const { return type() == JS_TO_WASM; }
 #endif  // V8_ENABLE_WEBASSEMBLY
   bool is_builtin() const { return type() == BUILTIN; }
@@ -257,10 +243,9 @@ class StackFrame {
   bool is_builtin_exit() const { return type() == BUILTIN_EXIT; }
 
   static bool IsJavaScript(Type t) {
-    static_assert(INTERPRETED + 1 == BASELINE);
-    static_assert(BASELINE + 1 == MAGLEV);
-    static_assert(MAGLEV + 1 == TURBOFAN);
-    return t >= INTERPRETED && t <= TURBOFAN;
+    STATIC_ASSERT(INTERPRETED + 1 == BASELINE);
+    STATIC_ASSERT(BASELINE + 1 == OPTIMIZED);
+    return t >= INTERPRETED && t <= OPTIMIZED;
   }
   bool is_java_script() const { return IsJavaScript(type()); }
 
@@ -297,20 +282,16 @@ class StackFrame {
   // Get the type of this frame.
   virtual Type type() const = 0;
 
-  // Get the code associated with this frame. The result might be a Code object,
-  // a CodeT object or an empty value.
-  // This method is used by Isolate::PushStackTraceAndDie() for collecting a
-  // stack trace on fatal error and thus it might be called in the middle of GC
-  // and should be as safe as possible.
-  virtual HeapObject unchecked_code() const = 0;
+  // Get the code associated with this frame.
+  // This method could be called during marking phase of GC.
+  virtual Code unchecked_code() const = 0;
 
   // Search for the code associated with this frame.
-  // TODO(v8:11880): rename to LookupCode()
-  V8_EXPORT_PRIVATE CodeLookupResult LookupCodeT() const;
+  V8_EXPORT_PRIVATE Code LookupCode() const;
 
   virtual void Iterate(RootVisitor* v) const = 0;
   void IteratePc(RootVisitor* v, Address* pc_address,
-                 Address* constant_pool_address, CodeLookupResult holder) const;
+                 Address* constant_pool_address, Code holder) const;
 
   // Sets a callback function for return-address rewriting profilers
   // to resolve the location of a return address to the location of the
@@ -509,8 +490,6 @@ class CommonFrame : public StackFrame {
   inline void SetExpression(int index, Object value);
   int ComputeExpressionsCount() const;
 
-  bool HasTaggedOutgoingParams(CodeLookupResult& code_lookup) const;
-
   Address GetCallerStackPointer() const override;
 
   // Build a list with summaries for this frame including all inlined frames.
@@ -544,37 +523,21 @@ class CommonFrame : public StackFrame {
   // and parts of the fixed part including context and code fields.
   void IterateExpressions(RootVisitor* v) const;
 
-  void IterateTurbofanOptimizedFrame(RootVisitor* v) const;
-
   // Returns the address of the n'th expression stack element.
   virtual Address GetExpressionAddress(int n) const;
+
+  // Used by OptimizedFrames and StubFrames.
+  void IterateCompiledFrame(RootVisitor* v) const;
 
  private:
   friend class StackFrame;
   friend class SafeStackFrameIterator;
 };
 
-// This frame is used for TF-optimized code without JS linkage, but
-// contains the context instead of a type marker.
-class TurbofanStubWithContextFrame : public CommonFrame {
- public:
-  Type type() const override { return TURBOFAN_STUB_WITH_CONTEXT; }
-
-  HeapObject unchecked_code() const override;
-  void Iterate(RootVisitor* v) const override;
-
- protected:
-  inline explicit TurbofanStubWithContextFrame(
-      StackFrameIteratorBase* iterator);
-
- private:
-  friend class StackFrameIteratorBase;
-};
-
 class TypedFrame : public CommonFrame {
  public:
-  HeapObject unchecked_code() const override { return {}; }
-  void Iterate(RootVisitor* v) const override;
+  Code unchecked_code() const override { return {}; }
+  void Iterate(RootVisitor* v) const override { IterateCompiledFrame(v); }
 
  protected:
   inline explicit TypedFrame(StackFrameIteratorBase* iterator);
@@ -592,7 +555,8 @@ class CommonFrameWithJSLinkage : public CommonFrame {
   Handle<FixedArray> GetParameters() const;
   virtual int GetActualArgumentCount() const;
 
-  HeapObject unchecked_code() const override;
+  // Determine the code for the frame.
+  Code unchecked_code() const override;
 
   // Lookup exception handler for current {pc}, returns -1 if none found. Also
   // returns data associated with the handler site specific to the frame type:
@@ -714,7 +678,7 @@ class EntryFrame : public TypedFrame {
  public:
   Type type() const override { return ENTRY; }
 
-  HeapObject unchecked_code() const override;
+  Code unchecked_code() const override;
 
   // Garbage collection support.
   void Iterate(RootVisitor* v) const override;
@@ -743,7 +707,7 @@ class ConstructEntryFrame : public EntryFrame {
  public:
   Type type() const override { return CONSTRUCT_ENTRY; }
 
-  HeapObject unchecked_code() const override;
+  Code unchecked_code() const override;
 
   static ConstructEntryFrame* cast(StackFrame* frame) {
     DCHECK(frame->is_construct_entry());
@@ -827,7 +791,8 @@ class StubFrame : public TypedFrame {
  public:
   Type type() const override { return STUB; }
 
-  HeapObject unchecked_code() const override;
+  // Determine the code for the frame.
+  Code unchecked_code() const override;
 
   // Lookup exception handler for current {pc}, returns -1 if none found. Only
   // TurboFan stub frames are supported.
@@ -842,6 +807,11 @@ class StubFrame : public TypedFrame {
 
 class OptimizedFrame : public JavaScriptFrame {
  public:
+  Type type() const override { return OPTIMIZED; }
+
+  // GC support.
+  void Iterate(RootVisitor* v) const override;
+
   // Return a list with {SharedFunctionInfo} objects of this frame.
   // The functions are ordered bottom-to-top (i.e. functions.last()
   // is the top-most activation)
@@ -849,19 +819,23 @@ class OptimizedFrame : public JavaScriptFrame {
 
   void Summarize(std::vector<FrameSummary>* frames) const override;
 
-  DeoptimizationData GetDeoptimizationData(int* deopt_index) const;
-
-  static int StackSlotOffsetRelativeToFp(int slot_index);
-
   // Lookup exception handler for current {pc}, returns -1 if none found.
   int LookupExceptionHandlerInTable(
       int* data, HandlerTable::CatchPrediction* prediction) override;
 
-  virtual int FindReturnPCForTrampoline(CodeT code,
-                                        int trampoline_pc) const = 0;
+  DeoptimizationData GetDeoptimizationData(int* deopt_index) const;
+
+  int ComputeParametersCount() const override;
+
+  static int StackSlotOffsetRelativeToFp(int slot_index);
 
  protected:
   inline explicit OptimizedFrame(StackFrameIteratorBase* iterator);
+
+ private:
+  friend class StackFrameIteratorBase;
+
+  Object StackSlotAt(int index) const;
 };
 
 // An unoptimized frame is a JavaScript frame that is executing bytecode. It
@@ -958,47 +932,6 @@ class BaselineFrame : public UnoptimizedFrame {
   friend class StackFrameIteratorBase;
 };
 
-class MaglevFrame : public OptimizedFrame {
- public:
-  Type type() const override { return MAGLEV; }
-
-  static MaglevFrame* cast(StackFrame* frame) {
-    DCHECK(frame->is_maglev());
-    return static_cast<MaglevFrame*>(frame);
-  }
-
-  void Iterate(RootVisitor* v) const override;
-
-  int FindReturnPCForTrampoline(CodeT code, int trampoline_pc) const override;
-
-  BytecodeOffset GetBytecodeOffsetForOSR() const;
-
- protected:
-  inline explicit MaglevFrame(StackFrameIteratorBase* iterator);
-
- private:
-  friend class StackFrameIteratorBase;
-};
-
-class TurbofanFrame : public OptimizedFrame {
- public:
-  Type type() const override { return TURBOFAN; }
-
-  int ComputeParametersCount() const override;
-
-  void Iterate(RootVisitor* v) const override;
-
-  int FindReturnPCForTrampoline(CodeT code, int trampoline_pc) const override;
-
- protected:
-  inline explicit TurbofanFrame(StackFrameIteratorBase* iterator);
-
- private:
-  friend class StackFrameIteratorBase;
-
-  Object StackSlotAt(int index) const;
-};
-
 // Builtin frames are built for builtins with JavaScript linkage, such as
 // various standard library functions (i.e. Math.asin, Math.floor, etc.).
 class BuiltinFrame final : public TypedFrameWithJSLinkage {
@@ -1031,8 +964,6 @@ class WasmFrame : public TypedFrame {
 
   // Lookup exception handler for current {pc}, returns -1 if none found.
   int LookupExceptionHandlerInTable();
-
-  void Iterate(RootVisitor* v) const override;
 
   // Accessors.
   V8_EXPORT_PRIVATE WasmInstanceObject wasm_instance() const;
@@ -1097,23 +1028,12 @@ class WasmDebugBreakFrame final : public TypedFrame {
   friend class StackFrameIteratorBase;
 };
 
-class WasmToJsFrame : public WasmFrame {
+class WasmToJsFrame : public StubFrame {
  public:
   Type type() const override { return WASM_TO_JS; }
 
  protected:
   inline explicit WasmToJsFrame(StackFrameIteratorBase* iterator);
-
- private:
-  friend class StackFrameIteratorBase;
-};
-
-class WasmToJsFunctionFrame : public TypedFrame {
- public:
-  Type type() const override { return WASM_TO_JS_FUNCTION; }
-
- protected:
-  inline explicit WasmToJsFunctionFrame(StackFrameIteratorBase* iterator);
 
  private:
   friend class StackFrameIteratorBase;
@@ -1161,11 +1081,8 @@ class WasmCompileLazyFrame : public TypedFrame {
  public:
   Type type() const override { return WASM_COMPILE_LAZY; }
 
+  WasmInstanceObject wasm_instance() const;
   FullObjectSlot wasm_instance_slot() const;
-
-  int GetFunctionIndex() const;
-
-  wasm::NativeModule* GetNativeModule() const;
 
   // Garbage collection support.
   void Iterate(RootVisitor* v) const override;
@@ -1340,14 +1257,12 @@ class StackFrameIterator : public StackFrameIteratorBase {
   V8_EXPORT_PRIVATE void Advance();
   StackFrame* Reframe();
 
-#if V8_ENABLE_WEBASSEMBLY
-  // Go to the first frame of this stack.
-  void Reset(ThreadLocalTop* top, wasm::StackMemory* stack);
-#endif
-
  private:
   // Go back to the first frame.
   void Reset(ThreadLocalTop* top);
+#if V8_ENABLE_WEBASSEMBLY
+  void Reset(ThreadLocalTop* top, wasm::StackMemory* stack);
+#endif
 };
 
 // Iterator that supports iterating through all JavaScript frames.

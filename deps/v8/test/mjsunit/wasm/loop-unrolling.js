@@ -13,7 +13,6 @@ d8.file.execute("test/mjsunit/wasm/exceptions-utils.js");
 // Test that lowering a ror operator with int64-lowering does not produce
 // floating control, which is incompatible with loop unrolling.
 (function I64RorLoweringTest() {
-  print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addMemory(1000, 1000);
 
@@ -31,40 +30,39 @@ d8.file.execute("test/mjsunit/wasm/exceptions-utils.js");
     .exportFunc();
 
   let module = new WebAssembly.Module(builder.toBuffer());
-  new WebAssembly.Instance(module);
+  let instance = new WebAssembly.Instance(module);
 })();
 
 // Test the interaction between multireturn and loop unrolling.
 (function MultiBlockResultTest() {
-  print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
-  let sig = builder.addType(kSig_ii_ii);
 
-  // f(a, b) = a + b + b + b - a*b*b*b
-  builder.addFunction("main", kSig_i_ii)
-    .addLocals(kWasmI32, 2)
+  builder.addFunction("main", kSig_i_i)
     .addBody([
-      kExprLocalGet, 0, kExprLocalGet, 0,
-      kExprLoop, sig,
-        kExprLocalSet, 2,  // Temporarily store the second value.
-        kExprLocalGet, 1, kExprI32Add,
-        // multiply the second value by 2
-        kExprLocalGet, 2, kExprLocalGet, 1, kExprI32Mul,
-        // Increment counter, then loop if <= 3.
-        kExprLocalGet, 3, kExprI32Const, 1, kExprI32Add, kExprLocalSet, 3,
-        kExprLocalGet, 3, kExprI32Const, 3, kExprI32LtS,
-        kExprBrIf, 0,
+      ...wasmI32Const(1),
+        kExprLet, kWasmVoid, 1, 1, kWasmI32,
+        kExprLoop, kWasmVoid,
+          ...wasmI32Const(10),
+          kExprLet, kWasmVoid, 1, 1, kWasmI32,
+            kExprLocalGet, 0,
+            kExprLocalGet, 1,
+            kExprI32Sub,
+            kExprLocalGet, 2,
+            kExprI32Add,
+            kExprReturn, // (second let) - (first let) + parameter
+          kExprEnd,
+        kExprEnd,
       kExprEnd,
-      kExprI32Sub])
-    .exportFunc();
+      ...wasmI32Const(0)])
+    .exportAs("main");
 
-  let instance = builder.instantiate();
-  assertEquals(10 + 5 + 5 + 5 - (10 * 5 * 5 * 5), instance.exports.main(10, 5))
+  let module = new WebAssembly.Module(builder.toBuffer());
+  let instance = new WebAssembly.Instance(module);
+  assertEquals(instance.exports.main(100), 109);
 })();
 
 // Test the interaction between tail calls and loop unrolling.
 (function TailCallTest() {
-  print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
 
   let callee = builder.addFunction("callee", kSig_i_i)
@@ -236,7 +234,7 @@ d8.file.execute("test/mjsunit/wasm/exceptions-utils.js");
       kExprLoop, kWasmVoid,
         kExprLocalGet, 0,
         kExprRefFunc, callee.index,
-        kExprCallRef, callee.type_index,
+        kExprCallRef,
         kExprBrIf, 0,
       kExprEnd,
       kExprLoop, kWasmVoid,

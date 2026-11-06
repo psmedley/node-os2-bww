@@ -7,16 +7,16 @@ using v8::Function;
 using v8::Global;
 using v8::HandleScope;
 using v8::Isolate;
-using v8::Just;
 using v8::Local;
 using v8::Locker;
 using v8::Maybe;
 using v8::Nothing;
 using v8::SealHandleScope;
+using v8::TryCatch;
 
 namespace node {
 
-Maybe<ExitCode> SpinEventLoopInternal(Environment* env) {
+Maybe<int> SpinEventLoop(Environment* env) {
   CHECK_NOT_NULL(env);
   MultiIsolatePlatform* platform = GetMultiIsolatePlatform(env);
   CHECK_NOT_NULL(platform);
@@ -26,7 +26,7 @@ Maybe<ExitCode> SpinEventLoopInternal(Environment* env) {
   Context::Scope context_scope(env->context());
   SealHandleScope seal(isolate);
 
-  if (env->is_stopping()) return Nothing<ExitCode>();
+  if (env->is_stopping()) return Nothing<int>();
 
   env->set_trace_sync_io(env->options()->trace_sync_io);
   {
@@ -60,7 +60,7 @@ Maybe<ExitCode> SpinEventLoopInternal(Environment* env) {
     env->performance_state()->Mark(
         node::performance::NODE_PERFORMANCE_MILESTONE_LOOP_EXIT);
   }
-  if (env->is_stopping()) return Nothing<ExitCode>();
+  if (env->is_stopping()) return Nothing<int>();
 
   env->set_trace_sync_io(false);
   // Clear the serialize callback even though the JS-land queue should
@@ -70,7 +70,7 @@ Maybe<ExitCode> SpinEventLoopInternal(Environment* env) {
 
   env->PrintInfoForSnapshotIfDebug();
   env->ForEachRealm([](Realm* realm) { realm->VerifyNoStrongBaseObjects(); });
-  return EmitProcessExitInternal(env);
+  return EmitProcessExit(env);
 }
 
 struct CommonEnvironmentSetup::Impl {
@@ -110,10 +110,19 @@ CommonEnvironmentSetup::CommonEnvironmentSetup(
   {
     Locker locker(isolate);
     Isolate::Scope isolate_scope(isolate);
+    HandleScope handle_scope(isolate);
+
+    TryCatch bootstrapCatch(isolate);
+    auto print_Exception = OnScopeLeave([&]() {
+      if (bootstrapCatch.HasCaught()) {
+        errors->push_back(FormatCaughtException(
+            isolate, isolate->GetCurrentContext(), bootstrapCatch));
+      }
+    });
+
     impl_->isolate_data.reset(CreateIsolateData(
         isolate, loop, platform, impl_->allocator.get()));
 
-    HandleScope handle_scope(isolate);
     Local<Context> context = NewContext(isolate);
     impl_->context.Reset(isolate, context);
     if (context.IsEmpty()) {
@@ -156,13 +165,6 @@ CommonEnvironmentSetup::~CommonEnvironmentSetup() {
   delete impl_;
 }
 
-Maybe<int> SpinEventLoop(Environment* env) {
-  Maybe<ExitCode> result = SpinEventLoopInternal(env);
-  if (result.IsNothing()) {
-    return Nothing<int>();
-  }
-  return Just(static_cast<int>(result.FromJust()));
-}
 
 uv_loop_t* CommonEnvironmentSetup::event_loop() const {
   return &impl_->loop;

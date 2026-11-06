@@ -1,5 +1,5 @@
 /* deflate.c -- compress data using the deflation algorithm
- * Copyright (C) 1995-2022 Jean-loup Gailly and Mark Adler
+ * Copyright (C) 1995-2017 Jean-loup Gailly and Mark Adler
  * For conditions of distribution and use, see copyright notice in zlib.h
  */
 
@@ -50,14 +50,15 @@
 /* @(#) $Id$ */
 #include <assert.h>
 #include "deflate.h"
-
 #include "cpu_features.h"
-
-#if defined(DEFLATE_SLIDE_HASH_SSE2) || defined(DEFLATE_SLIDE_HASH_NEON)
-#include "slide_hash_simd.h"
-#endif
-
 #include "contrib/optimizations/insert_string.h"
+
+#if (defined(__ARM_NEON__) || defined(__ARM_NEON))
+#include "contrib/optimizations/slide_hash_neon.h"
+#endif
+#if defined(CRC32_ARMV8_CRC32)
+#include "crc32_simd.h"
+#endif
 
 #ifdef FASTEST
 /* See http://crbug.com/1113596 */
@@ -65,7 +66,7 @@
 #endif
 
 const char deflate_copyright[] =
-   " deflate 1.2.12.1 Copyright 1995-2022 Jean-loup Gailly and Mark Adler ";
+   " deflate 1.2.11 Copyright 1995-2017 Jean-loup Gailly and Mark Adler ";
 /*
   If you use the zlib library in a product, an acknowledgment is welcome
   in the documentation of your product. If for some reason you cannot
@@ -99,7 +100,7 @@ local block_state deflate_huff   OF((deflate_state *s, int flush));
 local void lm_init        OF((deflate_state *s));
 local void putShortMSB    OF((deflate_state *s, uInt b));
 local void flush_pending  OF((z_streamp strm));
-local unsigned read_buf   OF((z_streamp strm, Bytef *buf, unsigned size));
+unsigned ZLIB_INTERNAL deflate_read_buf OF((z_streamp strm, Bytef *buf, unsigned size));
 #ifdef ASMV
 #  pragma message("Assembler code may have bugs -- use at your own risk")
       void match_init OF((void)); /* asm code initialization */
@@ -193,11 +194,10 @@ local const config configuration_table[10] = {
 local void slide_hash(s)
     deflate_state *s;
 {
-#if defined(DEFLATE_SLIDE_HASH_SSE2) || defined(DEFLATE_SLIDE_HASH_NEON)
-    slide_hash_simd(s->head, s->prev, s->w_size, s->hash_size);
-    return;
+#if (defined(__ARM_NEON__) || defined(__ARM_NEON))
+    /* NEON based hash table rebase. */
+    return neon_slide_hash(s->head, s->prev, s->w_size, s->hash_size);
 #endif
-
     unsigned n, m;
     Posf *p;
     uInt wsize = s->w_size;
@@ -314,19 +314,8 @@ int ZEXPORT deflateInit2_(strm, level, method, windowBits, memLevel, strategy,
     s->w_size = 1 << s->w_bits;
     s->w_mask = s->w_size - 1;
 
-    s->chromium_zlib_hash = 0;
-#if !defined(USE_ZLIB_RABIN_KARP_ROLLING_HASH)
-  #if defined(TARGET_CPU_WITH_CRC) && defined(CRC32_SIMD_SSE42_PCLMUL)
-    if (x86_cpu_enable_simd)
-      s->chromium_zlib_hash = 1;
-  #elif defined(TARGET_CPU_WITH_CRC) && defined(CRC32_ARMV8_CRC32)
-    if (arm_cpu_enable_crc32)
-      s->chromium_zlib_hash = 1;
-  #endif
-#endif
-
     s->hash_bits = memLevel + 7;
-    if (s->chromium_zlib_hash && s->hash_bits < 15) {
+    if ((x86_cpu_enable_simd || arm_cpu_enable_crc32) && s->hash_bits < 15) {
         s->hash_bits = 15;
     }
 
@@ -460,7 +449,7 @@ int ZEXPORT deflateSetDictionary (strm, dictionary, dictLength)
     /* when using zlib wrappers, compute Adler-32 for provided dictionary */
     if (wrap == 1)
         strm->adler = adler32(strm->adler, dictionary, dictLength);
-    s->wrap = 0;                    /* avoid computing Adler-32 in read_buf */
+    s->wrap = 0;                    /* avoid computing Adler-32 in deflate_read_buf */
 
     /* if dictionary would fill window, just replace the history */
     if (dictLength >= s->w_size) {
@@ -788,7 +777,7 @@ local void putShortMSB (s, b)
  * Flush as much pending output as possible. All deflate() output, except for
  * some deflate_stored() output, goes through this function so some
  * applications may wish to modify it to avoid allocating a large
- * strm->next_out buffer and copying into it. (See also read_buf()).
+ * strm->next_out buffer and copying into it. (See also deflate_read_buf()).
  */
 local void flush_pending(strm)
     z_streamp strm;
@@ -1224,7 +1213,7 @@ int ZEXPORT deflateCopy (dest, source)
  * allocating a large strm->next_in buffer and copying from it.
  * (See also flush_pending()).
  */
-local unsigned read_buf(strm, buf, size)
+ZLIB_INTERNAL unsigned deflate_read_buf(strm, buf, size)
     z_streamp strm;
     Bytef *buf;
     unsigned size;
@@ -1372,7 +1361,7 @@ local uInt longest_match(s, cur_match)
          * necessary to put more guard bytes at the end of the window, or
          * to check more often for insufficient lookahead.
          */
-        if (!s->chromium_zlib_hash) {
+        if (!x86_cpu_enable_simd && !arm_cpu_enable_crc32) {
           Assert(scan[2] == match[2], "scan[2]?");
         } else {
           /* When using CRC hashing, scan[2] and match[2] may mismatch, but in
@@ -1412,7 +1401,7 @@ local uInt longest_match(s, cur_match)
          * the hash keys are equal and that HASH_BITS >= 8.
          */
         scan += 2, match++;
-        if (!s->chromium_zlib_hash) {
+        if (!x86_cpu_enable_simd && !arm_cpu_enable_crc32) {
           Assert(*scan == *match, "match[2]?");
         } else {
           /* When using CRC hashing, scan[2] and match[2] may mismatch, but in
@@ -1561,7 +1550,20 @@ local void check_match(s, start, match, length)
  *    performed for at least two bytes (required for the zip translate_eol
  *    option -- not supported here).
  */
-local void fill_window(s)
+local void fill_window_c(deflate_state *s);
+
+local void fill_window(deflate_state *s)
+{
+#ifdef DEFLATE_FILL_WINDOW_SSE2
+    if (x86_cpu_enable_simd) {
+        fill_window_sse(s);
+        return;
+    }
+#endif
+    fill_window_c(s);
+}
+
+local void fill_window_c(s)
     deflate_state *s;
 {
     unsigned n;
@@ -1615,23 +1617,9 @@ local void fill_window(s)
          */
         Assert(more >= 2, "more < 2");
 
-        n = read_buf(s->strm, s->window + s->strstart + s->lookahead, more);
+        n = deflate_read_buf(s->strm, s->window + s->strstart + s->lookahead, more);
         s->lookahead += n;
 
-        /* Initialize the hash value now that we have some input: */
-        if (s->chromium_zlib_hash) {
-            /* chromium hash reads 4 bytes */
-            if (s->lookahead + s->insert > MIN_MATCH) {
-                uInt str = s->strstart - s->insert;
-                while (s->insert) {
-                    insert_string(s, str);
-                    str++;
-                    s->insert--;
-                    if (s->lookahead + s->insert <= MIN_MATCH)
-                        break;
-                }
-            }
-        } else
         /* Initialize the hash value now that we have some input: */
         if (s->lookahead + s->insert >= MIN_MATCH) {
             uInt str = s->strstart - s->insert;
@@ -1736,7 +1724,7 @@ local void fill_window(s)
  *
  * deflate_stored() is written to minimize the number of times an input byte is
  * copied. It is most efficient with large input and output buffers, which
- * maximizes the opportunities to have a single copy from next_in to next_out.
+ * maximizes the opportunites to have a single copy from next_in to next_out.
  */
 local block_state deflate_stored(s, flush)
     deflate_state *s;
@@ -1818,7 +1806,7 @@ local block_state deflate_stored(s, flush)
          * the check value.
          */
         if (len) {
-            read_buf(s->strm, s->strm->next_out, len);
+            deflate_read_buf(s->strm, s->strm->next_out, len);
             s->strm->next_out += len;
             s->strm->avail_out -= len;
             s->strm->total_out += len;
@@ -1886,7 +1874,7 @@ local block_state deflate_stored(s, flush)
     if (have > s->strm->avail_in)
         have = s->strm->avail_in;
     if (have) {
-        read_buf(s->strm, s->window + s->strstart, have);
+        deflate_read_buf(s->strm, s->window + s->strstart, have);
         s->strstart += have;
         s->insert += MIN(have, s->w_size - s->insert);
     }
@@ -1993,17 +1981,14 @@ local block_state deflate_fast(s, flush)
             {
                 s->strstart += s->match_length;
                 s->match_length = 0;
-
-                if (!s->chromium_zlib_hash) {
-                  s->ins_h = s->window[s->strstart];
-                  UPDATE_HASH(s, s->ins_h, s->window[s->strstart+1]);
+                s->ins_h = s->window[s->strstart];
+                UPDATE_HASH(s, s->ins_h, s->window[s->strstart+1]);
 #if MIN_MATCH != 3
-                  Call UPDATE_HASH() MIN_MATCH-3 more times
+                Call UPDATE_HASH() MIN_MATCH-3 more times
 #endif
-                  /* If lookahead < MIN_MATCH, ins_h is garbage, but it does not
-                   * matter since it will be recomputed at next deflate call.
-                   */
-                }
+                /* If lookahead < MIN_MATCH, ins_h is garbage, but it does not
+                 * matter since it will be recomputed at next deflate call.
+                 */
             }
         } else {
             /* No match, output a literal byte */

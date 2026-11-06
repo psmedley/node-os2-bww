@@ -35,6 +35,7 @@ void ExpectMessage(const char* expected, const Message& message) {
 }  // namespace
 
 TEST_F(WasmCapiTest, Traps) {
+  FLAG_experimental_wasm_eh = true;
   ValueType i32_type[] = {kWasmI32};
   FunctionSig sig(1, 0, i32_type);
   uint32_t callback_index =

@@ -1,4 +1,5 @@
-undefined:1: SyntaxError: Unexpected token '/', "// Copyrig"... is not valid JSON
+*%(basename)s:9: 'assert' is deprecated in import statements and support will be removed in a future version; use 'with' instead
+undefined:1: SyntaxError: Unexpected token / in JSON at position 0
 // Copyright 2021 the V8 project authors. All rights reserved.
 ^
-SyntaxError: Unexpected token '/', "// Copyrig"... is not valid JSON
+SyntaxError: Unexpected token / in JSON at position 0

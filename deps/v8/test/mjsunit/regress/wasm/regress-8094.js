@@ -26,4 +26,4 @@ try {
 // that no extraneous properties exist. Setting such properties could be
 // observable by JavaScript and could break compatibility.
 assertInstanceof(exception, WebAssembly.Exception);
-assertArrayEquals([], Object.getOwnPropertyNames(exception));
+assertArrayEquals(["stack", "message"], Object.getOwnPropertyNames(exception));

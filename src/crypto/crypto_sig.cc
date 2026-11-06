@@ -13,6 +13,7 @@ namespace node {
 
 using v8::ArrayBuffer;
 using v8::BackingStore;
+using v8::Boolean;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::HandleScope;
@@ -91,12 +92,15 @@ std::unique_ptr<BackingStore> Node_SignFinal(Environment* env,
     sig = ArrayBuffer::NewBackingStore(env->isolate(), sig_len);
   }
   EVPKeyCtxPointer pkctx(EVP_PKEY_CTX_new(pkey.get(), nullptr));
-  if (pkctx &&
-      EVP_PKEY_sign_init(pkctx.get()) &&
+  if (pkctx && EVP_PKEY_sign_init(pkctx.get()) > 0 &&
       ApplyRSAOptions(pkey, pkctx.get(), padding, pss_salt_len) &&
-      EVP_PKEY_CTX_set_signature_md(pkctx.get(), EVP_MD_CTX_md(mdctx.get())) &&
-      EVP_PKEY_sign(pkctx.get(), static_cast<unsigned char*>(sig->Data()),
-                    &sig_len, m, m_len)) {
+      EVP_PKEY_CTX_set_signature_md(pkctx.get(), EVP_MD_CTX_md(mdctx.get())) >
+          0 &&
+      EVP_PKEY_sign(pkctx.get(),
+                    static_cast<unsigned char*>(sig->Data()),
+                    &sig_len,
+                    m,
+                    m_len) > 0) {
     CHECK_LE(sig_len, sig->ByteLength());
     if (sig_len == 0)
       sig = ArrayBuffer::NewBackingStore(env->isolate(), 0);
@@ -419,6 +423,11 @@ void Sign::SignFinal(const FunctionCallbackInfo<Value>& args) {
   if (!key)
     return;
 
+  if (IsOneShot(key)) {
+    THROW_ERR_CRYPTO_UNSUPPORTED_OPERATION(env);
+    return;
+  }
+
   int padding = GetDefaultSignPadding(key);
   if (!args[offset]->IsUndefined()) {
     CHECK(args[offset]->IsInt32());
@@ -520,14 +529,18 @@ SignBase::Error Verify::VerifyFinal(const ManagedEVPPKey& pkey,
     return kSignPublicKey;
 
   EVPKeyCtxPointer pkctx(EVP_PKEY_CTX_new(pkey.get(), nullptr));
-  if (pkctx &&
-      EVP_PKEY_verify_init(pkctx.get()) > 0 &&
-      ApplyRSAOptions(pkey, pkctx.get(), padding, saltlen) &&
-      EVP_PKEY_CTX_set_signature_md(pkctx.get(),
-                                    EVP_MD_CTX_md(mdctx.get())) > 0) {
-    const unsigned char* s = sig.data<unsigned char>();
-    const int r = EVP_PKEY_verify(pkctx.get(), s, sig.size(), m, m_len);
-    *verify_result = r == 1;
+  if (pkctx) {
+    const int init_ret = EVP_PKEY_verify_init(pkctx.get());
+    if (init_ret == -2) {
+      return kSignPublicKey;
+    }
+    if (init_ret > 0 && ApplyRSAOptions(pkey, pkctx.get(), padding, saltlen) &&
+        EVP_PKEY_CTX_set_signature_md(pkctx.get(), EVP_MD_CTX_md(mdctx.get())) >
+            0) {
+      const unsigned char* s = sig.data<unsigned char>();
+      const int r = EVP_PKEY_verify(pkctx.get(), s, sig.size(), m, m_len);
+      *verify_result = r == 1;
+    }
   }
 
   return kSignOk;
@@ -545,6 +558,11 @@ void Verify::VerifyFinal(const FunctionCallbackInfo<Value>& args) {
       ManagedEVPPKey::GetPublicOrPrivateKeyFromJs(args, &offset);
   if (!pkey)
     return;
+
+  if (IsOneShot(pkey)) {
+    THROW_ERR_CRYPTO_UNSUPPORTED_OPERATION(env);
+    return;
+  }
 
   ArrayBufferOrViewContents<char> hbuf(args[offset]);
   if (UNLIKELY(!hbuf.CheckSizeInt32()))
@@ -820,8 +838,7 @@ Maybe<bool> SignTraits::EncodeOutput(
       *result = out->ToArrayBuffer(env);
       break;
     case SignConfiguration::kVerify:
-      *result = out->data<char>()[0] == 1 ? v8::True(env->isolate())
-                                          : v8::False(env->isolate());
+      *result = Boolean::New(env->isolate(), out->data<char>()[0] == 1);
       break;
     default:
       UNREACHABLE();

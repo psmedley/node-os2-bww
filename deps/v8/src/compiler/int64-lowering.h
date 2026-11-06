@@ -7,9 +7,11 @@
 
 #include <memory>
 
+#include "src/common/globals.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/graph.h"
 #include "src/compiler/machine-operator.h"
+#include "src/compiler/node-marker.h"
 #include "src/compiler/simplified-operator.h"
 #include "src/zone/zone-containers.h"
 
@@ -33,8 +35,7 @@ class V8_EXPORT_PRIVATE Int64Lowering {
   Int64Lowering(
       Graph* graph, MachineOperatorBuilder* machine,
       CommonOperatorBuilder* common, SimplifiedOperatorBuilder* simplified_,
-      Zone* zone, const wasm::WasmModule* module,
-      Signature<MachineRepresentation>* signature,
+      Zone* zone, Signature<MachineRepresentation>* signature,
       std::unique_ptr<Int64LoweringSpecialCase> special_case = nullptr);
 
   void LowerGraph();
@@ -71,8 +72,6 @@ class V8_EXPORT_PRIVATE Int64Lowering {
 
   const CallDescriptor* LowerCallDescriptor(
       const CallDescriptor* call_descriptor);
-  Node* SetInt32Type(Node* node);
-  Node* SetFloat64Type(Node* node);
 
   void ReplaceNode(Node* old, Node* new_low, Node* new_high);
   bool HasReplacementLow(Node* node);
@@ -89,20 +88,17 @@ class V8_EXPORT_PRIVATE Int64Lowering {
     int input_index;
   };
 
+  Zone* zone_;
   Graph* const graph_;
   MachineOperatorBuilder* machine_;
   CommonOperatorBuilder* common_;
   SimplifiedOperatorBuilder* simplified_;
-  Zone* zone_;
-  Signature<MachineRepresentation>* signature_;
-  std::unique_ptr<Int64LoweringSpecialCase> special_case_;
   std::vector<State> state_;
   ZoneDeque<NodeState> stack_;
   Replacement* replacements_;
+  Signature<MachineRepresentation>* signature_;
   Node* placeholder_;
-  // Caches for node types, so we do not waste memory.
-  Type int32_type_;
-  Type float64_type_;
+  std::unique_ptr<Int64LoweringSpecialCase> special_case_;
 };
 
 }  // namespace compiler

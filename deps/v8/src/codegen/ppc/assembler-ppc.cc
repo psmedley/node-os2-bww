@@ -36,16 +36,13 @@
 
 #include "src/codegen/ppc/assembler-ppc.h"
 
-#if defined(__PASE__)
-#include <sys/utsname.h>
-#endif
-
 #if V8_TARGET_ARCH_PPC || V8_TARGET_ARCH_PPC64
 
 #include "src/base/bits.h"
 #include "src/base/cpu.h"
 #include "src/codegen/macro-assembler.h"
 #include "src/codegen/ppc/assembler-ppc-inl.h"
+#include "src/codegen/string-constants.h"
 #include "src/deoptimizer/deoptimizer.h"
 
 namespace v8 {
@@ -79,19 +76,10 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
 #else
   base::CPU cpu;
   if (cpu.part() == base::CPU::kPPCPower10) {
+// IBMi does not yet support prefixed instructions introduced on Power10.
+// Run on P9 mode until OS adds support.
 #if defined(__PASE__)
-    // Some P10 features such as prefixed isns will only be supported in future
-    // ibmi versions. We only enable full power 10 features if version>7.4
-    struct utsname uts;
-    memset(reinterpret_cast<void*>(&uts), 0, sizeof(uts));
-    int r = uname(&uts);
-    CHECK_GE(r, 0);
-    int rel = atoi(uts.release);
-    if (rel > 4) {
-      supported_ |= (1u << PPC_10_PLUS);
-    } else {
-      supported_ |= (1u << PPC_9_PLUS);
-    }
+    supported_ |= (1u << PPC_9_PLUS);
 #else
     supported_ |= (1u << PPC_10_PLUS);
 #endif
@@ -167,7 +155,7 @@ bool RelocInfo::IsCodedSpecially() {
 }
 
 bool RelocInfo::IsInConstantPool() {
-  if (V8_EMBEDDED_CONSTANT_POOL_BOOL && constant_pool_ != kNullAddress) {
+  if (FLAG_enable_embedded_constant_pool && constant_pool_ != kNullAddress) {
     return Assembler::IsConstantPoolLoadStart(pc_);
   }
   return false;
@@ -193,8 +181,15 @@ Operand Operand::EmbeddedNumber(double value) {
   int32_t smi;
   if (DoubleToSmiInteger(value, &smi)) return Operand(Smi::FromInt(smi));
   Operand result(0, RelocInfo::FULL_EMBEDDED_OBJECT);
-  result.is_heap_number_request_ = true;
-  result.value_.heap_number_request = HeapNumberRequest(value);
+  result.is_heap_object_request_ = true;
+  result.value_.heap_object_request = HeapObjectRequest(value);
+  return result;
+}
+
+Operand Operand::EmbeddedStringConstant(const StringConstantBase* str) {
+  Operand result(0, RelocInfo::FULL_EMBEDDED_OBJECT);
+  result.is_heap_object_request_ = true;
+  result.value_.heap_object_request = HeapObjectRequest(str);
   return result;
 }
 
@@ -207,12 +202,23 @@ MemOperand::MemOperand(Register ra, Register rb)
 MemOperand::MemOperand(Register ra, Register rb, int64_t offset)
     : ra_(ra), offset_(offset), rb_(rb) {}
 
-void Assembler::AllocateAndInstallRequestedHeapNumbers(Isolate* isolate) {
-  DCHECK_IMPLIES(isolate == nullptr, heap_number_requests_.empty());
-  for (auto& request : heap_number_requests_) {
-    Handle<HeapObject> object =
-        isolate->factory()->NewHeapNumber<AllocationType::kOld>(
+void Assembler::AllocateAndInstallRequestedHeapObjects(Isolate* isolate) {
+  DCHECK_IMPLIES(isolate == nullptr, heap_object_requests_.empty());
+  for (auto& request : heap_object_requests_) {
+    Handle<HeapObject> object;
+    switch (request.kind()) {
+      case HeapObjectRequest::kHeapNumber: {
+        object = isolate->factory()->NewHeapNumber<AllocationType::kOld>(
             request.heap_number());
+        break;
+      }
+      case HeapObjectRequest::kStringConstant: {
+        const StringConstantBase* str = request.string();
+        CHECK_NOT_NULL(str);
+        object = str->AllocateStringConstant(isolate);
+        break;
+      }
+    }
     Address pc = reinterpret_cast<Address>(buffer_start_) + request.offset();
     Address constant_pool = kNullAddress;
     set_target_address_at(pc, constant_pool, object.address(),
@@ -237,7 +243,7 @@ Assembler::Assembler(const AssemblerOptions& options,
   internal_trampoline_exception_ = false;
   last_bound_pos_ = 0;
   optimizable_cmpi_pos_ = -1;
-  trampoline_emitted_ = v8_flags.force_long_branches;
+  trampoline_emitted_ = FLAG_force_long_branches;
   tracked_branch_count_ = 0;
   relocations_.reserve(128);
 }
@@ -261,7 +267,7 @@ void Assembler::GetCode(Isolate* isolate, CodeDesc* desc,
 
   int code_comments_size = WriteCodeComments();
 
-  AllocateAndInstallRequestedHeapNumbers(isolate);
+  AllocateAndInstallRequestedHeapObjects(isolate);
 
   // Set up code descriptor.
   // TODO(jgruber): Reconsider how these offsets and sizes are maintained up to
@@ -838,16 +844,6 @@ void Assembler::mulli(Register dst, Register src, const Operand& imm) {
   d_form(MULLI, dst, src, imm.immediate(), true);
 }
 
-// Multiply hi doubleword
-void Assembler::mulhd(Register dst, Register src1, Register src2, RCBit r) {
-  xo_form(EXT2 | MULHD, dst, src1, src2, LeaveOE, r);
-}
-
-// Multiply hi doubleword unsigned
-void Assembler::mulhdu(Register dst, Register src1, Register src2, RCBit r) {
-  xo_form(EXT2 | MULHDU, dst, src1, src2, LeaveOE, r);
-}
-
 // Multiply hi word
 void Assembler::mulhw(Register dst, Register src1, Register src2, RCBit r) {
   xo_form(EXT2 | MULHWX, dst, src1, src2, LeaveOE, r);
@@ -1247,60 +1243,6 @@ void Assembler::plfd(DoubleRegister dst, const MemOperand& src) {
   pload_store_mls(Operand(hi));
   lfd(dst, MemOperand(src.ra(), lo));
 }
-
-void Assembler::pstb(Register src, const MemOperand& dst) {
-  DCHECK(dst.ra_ != r0);
-  int64_t offset = dst.offset();
-  GENERATE_PREFIX_SUFFIX_BITS(offset, hi, lo)
-  BlockTrampolinePoolScope block_trampoline_pool(this);
-  pload_store_mls(Operand(hi));
-  stb(src, MemOperand(dst.ra(), lo));
-}
-
-void Assembler::psth(Register src, const MemOperand& dst) {
-  DCHECK(dst.ra_ != r0);
-  int64_t offset = dst.offset();
-  GENERATE_PREFIX_SUFFIX_BITS(offset, hi, lo)
-  BlockTrampolinePoolScope block_trampoline_pool(this);
-  pload_store_mls(Operand(hi));
-  sth(src, MemOperand(dst.ra(), lo));
-}
-
-void Assembler::pstw(Register src, const MemOperand& dst) {
-  DCHECK(dst.ra_ != r0);
-  int64_t offset = dst.offset();
-  GENERATE_PREFIX_SUFFIX_BITS(offset, hi, lo)
-  BlockTrampolinePoolScope block_trampoline_pool(this);
-  pload_store_mls(Operand(hi));
-  stw(src, MemOperand(dst.ra(), lo));
-}
-
-void Assembler::pstd(Register src, const MemOperand& dst) {
-  DCHECK(dst.ra_ != r0);
-  int64_t offset = dst.offset();
-  GENERATE_PREFIX_SUFFIX_BITS(offset, hi, lo)
-  BlockTrampolinePoolScope block_trampoline_pool(this);
-  pload_store_8ls(Operand(hi));
-  emit(PPSTD | src.code() * B21 | dst.ra().code() * B16 | (lo & kImm16Mask));
-}
-
-void Assembler::pstfs(const DoubleRegister src, const MemOperand& dst) {
-  DCHECK(dst.ra_ != r0);
-  int64_t offset = dst.offset();
-  GENERATE_PREFIX_SUFFIX_BITS(offset, hi, lo)
-  BlockTrampolinePoolScope block_trampoline_pool(this);
-  pload_store_mls(Operand(hi));
-  stfs(src, MemOperand(dst.ra(), lo));
-}
-
-void Assembler::pstfd(const DoubleRegister src, const MemOperand& dst) {
-  DCHECK(dst.ra_ != r0);
-  int64_t offset = dst.offset();
-  GENERATE_PREFIX_SUFFIX_BITS(offset, hi, lo)
-  BlockTrampolinePoolScope block_trampoline_pool(this);
-  pload_store_mls(Operand(hi));
-  stfd(src, MemOperand(dst.ra(), lo));
-}
 #undef GENERATE_PREFIX_SUFFIX_BITS
 
 int Assembler::instructions_required_for_mov(Register dst,
@@ -1319,7 +1261,7 @@ int Assembler::instructions_required_for_mov(Register dst,
 
 bool Assembler::use_constant_pool_for_mov(Register dst, const Operand& src,
                                           bool canOptimize) const {
-  if (!V8_EMBEDDED_CONSTANT_POOL_BOOL || !is_constant_pool_available()) {
+  if (!FLAG_enable_embedded_constant_pool || !is_constant_pool_available()) {
     // If there is no constant pool available, we must use a mov
     // immediate sequence.
     return false;
@@ -1369,8 +1311,8 @@ bool Operand::must_output_reloc_info(const Assembler* assembler) const {
 // and only use the generic version when we require a fixed sequence
 void Assembler::mov(Register dst, const Operand& src) {
   intptr_t value;
-  if (src.IsHeapNumberRequest()) {
-    RequestHeapNumber(src.heap_number_request());
+  if (src.IsHeapObjectRequest()) {
+    RequestHeapObject(src.heap_object_request());
     value = 0;
   } else {
     value = src.immediate();
@@ -1384,7 +1326,7 @@ void Assembler::mov(Register dst, const Operand& src) {
          (!is_int16(value) ||
           !(CpuFeatures::IsSupported(PPC_10_PLUS) && is_int34(value)))));
 
-  if (!src.IsHeapNumberRequest() &&
+  if (!src.IsHeapObjectRequest() &&
       use_constant_pool_for_mov(dst, src, canOptimize)) {
     DCHECK(is_constant_pool_available());
     if (relocatable) {
@@ -2163,7 +2105,8 @@ void Assembler::db(uint8_t data) {
 void Assembler::dd(uint32_t data, RelocInfo::Mode rmode) {
   CheckBuffer();
   if (!RelocInfo::IsNoInfo(rmode)) {
-    DCHECK(RelocInfo::IsLiteralConstant(rmode));
+    DCHECK(RelocInfo::IsDataEmbeddedObject(rmode) ||
+           RelocInfo::IsLiteralConstant(rmode));
     RecordRelocInfo(rmode);
   }
   *reinterpret_cast<uint32_t*>(pc_) = data;
@@ -2173,7 +2116,8 @@ void Assembler::dd(uint32_t data, RelocInfo::Mode rmode) {
 void Assembler::dq(uint64_t value, RelocInfo::Mode rmode) {
   CheckBuffer();
   if (!RelocInfo::IsNoInfo(rmode)) {
-    DCHECK(RelocInfo::IsLiteralConstant(rmode));
+    DCHECK(RelocInfo::IsDataEmbeddedObject(rmode) ||
+           RelocInfo::IsLiteralConstant(rmode));
     RecordRelocInfo(rmode);
   }
   *reinterpret_cast<uint64_t*>(pc_) = value;
@@ -2183,7 +2127,8 @@ void Assembler::dq(uint64_t value, RelocInfo::Mode rmode) {
 void Assembler::dp(uintptr_t data, RelocInfo::Mode rmode) {
   CheckBuffer();
   if (!RelocInfo::IsNoInfo(rmode)) {
-    DCHECK(RelocInfo::IsLiteralConstant(rmode));
+    DCHECK(RelocInfo::IsDataEmbeddedObject(rmode) ||
+           RelocInfo::IsLiteralConstant(rmode));
     RecordRelocInfo(rmode);
   }
   *reinterpret_cast<uintptr_t*>(pc_) = data;

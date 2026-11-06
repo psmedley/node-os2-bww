@@ -12,7 +12,6 @@ if (!common.canCreateSymLink())
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const fsPromises = fs.promises;
 
 const tmpdir = require('../common/tmpdir');
 tmpdir.refresh();
@@ -37,18 +36,11 @@ function testAsync(target, path) {
   }));
 }
 
-async function testPromises(target, path) {
-  await fsPromises.symlink(target, path);
-  fs.readdirSync(path);
-}
-
 for (const linkTarget of linkTargets) {
   fs.mkdirSync(path.resolve(tmpdir.path, linkTarget));
   for (const linkPath of linkPaths) {
     testSync(linkTarget, `${linkPath}-${path.basename(linkTarget)}-sync`);
     testAsync(linkTarget, `${linkPath}-${path.basename(linkTarget)}-async`);
-    testPromises(linkTarget, `${linkPath}-${path.basename(linkTarget)}-promises`)
-      .then(common.mustCall());
   }
 }
 
@@ -65,17 +57,10 @@ for (const linkTarget of linkTargets) {
     }));
   }
 
-  async function testPromises(target, path) {
-    await fsPromises.symlink(target, path);
-    assert(!fs.existsSync(path));
-  }
-
   for (const linkTarget of linkTargets.map((p) => p + '-broken')) {
     for (const linkPath of linkPaths) {
       testSync(linkTarget, `${linkPath}-${path.basename(linkTarget)}-sync`);
       testAsync(linkTarget, `${linkPath}-${path.basename(linkTarget)}-async`);
-      testPromises(linkTarget, `${linkPath}-${path.basename(linkTarget)}-promises`)
-        .then(common.mustCall());
     }
   }
 }

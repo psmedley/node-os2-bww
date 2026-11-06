@@ -29,15 +29,16 @@ class V8_NODISCARD IncrementalMarkingScope {
     marker_->FinishMarking(kIncrementalConfig.stack_state);
   }
 
-  static constexpr MarkingConfig kIncrementalConfig{
-      CollectionType::kMajor, StackState::kNoHeapPointers,
-      MarkingConfig::MarkingType::kIncremental};
+  static constexpr Marker::MarkingConfig kIncrementalConfig{
+      Marker::MarkingConfig::CollectionType::kMajor,
+      Marker::MarkingConfig::StackState::kNoHeapPointers,
+      Marker::MarkingConfig::MarkingType::kIncremental};
 
  private:
   MarkerBase* marker_;
 };
 
-constexpr MarkingConfig IncrementalMarkingScope::kIncrementalConfig;
+constexpr Marker::MarkingConfig IncrementalMarkingScope::kIncrementalConfig;
 
 class V8_NODISCARD ExpectWriteBarrierFires final
     : private IncrementalMarkingScope {
@@ -189,7 +190,7 @@ class NoWriteBarrierTest : public testing::TestWithHeap {};
 TEST_F(WriteBarrierTest, EnableDisableIncrementalMarking) {
   {
     IncrementalMarkingScope scope(marker());
-    EXPECT_TRUE(WriteBarrier::IsEnabled());
+    EXPECT_TRUE(WriteBarrier::IsAnyIncrementalOrConcurrentMarking());
   }
 }
 
@@ -350,10 +351,11 @@ TEST_F(NoWriteBarrierTest, WriteBarrierBailoutWhenMarkingIsOff) {
   {
     EXPECT_FALSE(object1->IsMarked());
     WriteBarrierParams params;
-    const WriteBarrierType expected =
-        Heap::From(GetHeap())->generational_gc_supported()
-            ? WriteBarrierType::kGenerational
-            : WriteBarrierType::kNone;
+#if defined(CPPGC_YOUNG_GENERATION)
+    WriteBarrierType expected = WriteBarrierType::kGenerational;
+#else   // !CPPGC_YOUNG_GENERATION
+    WriteBarrierType expected = WriteBarrierType::kNone;
+#endif  // !CPPGC_YOUNG_GENERATION
     EXPECT_EQ(expected, HeapConsistency::GetWriteBarrierType(
                             object2->next_ref().GetSlotForTesting(),
                             object2->next_ref().Get(), params));

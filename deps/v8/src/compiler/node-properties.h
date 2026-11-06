@@ -10,6 +10,8 @@
 #include "src/compiler/node.h"
 #include "src/compiler/operator-properties.h"
 #include "src/compiler/types.h"
+#include "src/objects/map.h"
+#include "src/zone/zone-handle-set.h"
 
 namespace v8 {
 namespace internal {
@@ -140,6 +142,10 @@ class V8_EXPORT_PRIVATE NodeProperties {
         return false;
     }
   }
+
+  // Determines if {node} has an allocating opcode, or is a builtin known to
+  // return a fresh object.
+  static bool IsFreshObject(Node* node);
 
   // ---------------------------------------------------------------------------
   // Miscellaneous mutators.

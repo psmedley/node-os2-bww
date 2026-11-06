@@ -203,7 +203,6 @@ Handle<Object> Context::Lookup(Handle<Context> context, Handle<String> name,
   Isolate* isolate = context->GetIsolate();
 
   bool follow_context_chain = (flags & FOLLOW_CONTEXT_CHAIN) != 0;
-  bool has_seen_debug_evaluate_context = false;
   *index = kNotFound;
   *attributes = ABSENT;
   *init_flag = kCreatedInitialized;
@@ -212,19 +211,18 @@ Handle<Object> Context::Lookup(Handle<Context> context, Handle<String> name,
     *is_sloppy_function_name = false;
   }
 
-  if (v8_flags.trace_contexts) {
+  if (FLAG_trace_contexts) {
     PrintF("Context::Lookup(");
     name->ShortPrint();
     PrintF(")\n");
   }
 
   do {
-    if (v8_flags.trace_contexts) {
+    if (FLAG_trace_contexts) {
       PrintF(" - looking in context %p",
              reinterpret_cast<void*>(context->ptr()));
       if (context->IsScriptContext()) PrintF(" (script context)");
       if (context->IsNativeContext()) PrintF(" (native context)");
-      if (context->IsDebugEvaluateContext()) PrintF(" (debug context)");
       PrintF("\n");
     }
 
@@ -238,7 +236,7 @@ Handle<Object> Context::Lookup(Handle<Context> context, Handle<String> name,
 
       if (context->IsNativeContext()) {
         DisallowGarbageCollection no_gc;
-        if (v8_flags.trace_contexts) {
+        if (FLAG_trace_contexts) {
           PrintF(" - trying other script contexts\n");
         }
         // Try other script contexts.
@@ -247,7 +245,7 @@ Handle<Object> Context::Lookup(Handle<Context> context, Handle<String> name,
         VariableLookupResult r;
         if (script_contexts.Lookup(name, &r)) {
           Context script_context = script_contexts.get_context(r.context_index);
-          if (v8_flags.trace_contexts) {
+          if (FLAG_trace_contexts) {
             PrintF("=> found property in script context %d: %p\n",
                    r.context_index,
                    reinterpret_cast<void*>(script_context.ptr()));
@@ -297,7 +295,7 @@ Handle<Object> Context::Lookup(Handle<Context> context, Handle<String> name,
       *attributes = maybe.FromJust();
 
       if (maybe.FromJust() != ABSENT) {
-        if (v8_flags.trace_contexts) {
+        if (FLAG_trace_contexts) {
           PrintF("=> found property in context object %p\n",
                  reinterpret_cast<void*>(object->ptr()));
         }
@@ -328,7 +326,7 @@ Handle<Object> Context::Lookup(Handle<Context> context, Handle<String> name,
           continue;
         }
 
-        if (v8_flags.trace_contexts) {
+        if (FLAG_trace_contexts) {
           PrintF("=> found local in context slot %d (mode = %hhu)\n",
                  slot_index, static_cast<uint8_t>(lookup_result.mode));
         }
@@ -345,7 +343,7 @@ Handle<Object> Context::Lookup(Handle<Context> context, Handle<String> name,
       if (follow_context_chain && context->IsFunctionContext()) {
         int function_index = scope_info.FunctionContextSlotIndex(*name);
         if (function_index >= 0) {
-          if (v8_flags.trace_contexts) {
+          if (FLAG_trace_contexts) {
             PrintF("=> found intermediate function in context slot %d\n",
                    function_index);
           }
@@ -369,7 +367,7 @@ Handle<Object> Context::Lookup(Handle<Context> context, Handle<String> name,
         int cell_index =
             scope_info.ModuleIndex(*name, &mode, &flag, &maybe_assigned_flag);
         if (cell_index != 0) {
-          if (v8_flags.trace_contexts) {
+          if (FLAG_trace_contexts) {
             PrintF("=> found in module imports or exports\n");
           }
           *index = cell_index;
@@ -383,8 +381,6 @@ Handle<Object> Context::Lookup(Handle<Context> context, Handle<String> name,
         }
       }
     } else if (context->IsDebugEvaluateContext()) {
-      has_seen_debug_evaluate_context = true;
-
       // Check materialized locals.
       Object ext = context->get(EXTENSION_INDEX);
       if (ext.IsJSReceiver()) {
@@ -399,11 +395,9 @@ Handle<Object> Context::Lookup(Handle<Context> context, Handle<String> name,
 
       // Check blocklist. Names that are listed, cannot be resolved further.
       ScopeInfo scope_info = context->scope_info();
-      CHECK_IMPLIES(v8_flags.experimental_reuse_locals_blocklists,
-                    !scope_info.HasLocalsBlockList());
       if (scope_info.HasLocalsBlockList() &&
           scope_info.LocalsBlockList().Has(isolate, name)) {
-        if (v8_flags.trace_contexts) {
+        if (FLAG_trace_contexts) {
           PrintF(" - name is blocklisted. Aborting.\n");
         }
         break;
@@ -423,45 +417,20 @@ Handle<Object> Context::Lookup(Handle<Context> context, Handle<String> name,
     // 3. Prepare to continue with the previous (next outermost) context.
     if (context->IsNativeContext()) break;
 
-    // In case we saw any DebugEvaluateContext, we'll need to check the block
-    // list before we can advance to properly "shadow" stack-allocated
-    // variables.
-    // Note that this implicitly skips the block list check for the
-    // "wrapped" context lookup for DebugEvaluateContexts. In that case
-    // `has_seen_debug_evaluate_context` will always be false.
-    if (v8_flags.experimental_reuse_locals_blocklists &&
-        has_seen_debug_evaluate_context &&
-        isolate->heap()->locals_block_list_cache().IsEphemeronHashTable()) {
-      Handle<ScopeInfo> scope_info = handle(context->scope_info(), isolate);
-      Object maybe_outer_block_list =
-          isolate->LocalsBlockListCacheGet(scope_info);
-      if (maybe_outer_block_list.IsStringSet() &&
-          StringSet::cast(maybe_outer_block_list).Has(isolate, name)) {
-        if (v8_flags.trace_contexts) {
-          PrintF(" - name is blocklisted. Aborting.\n");
-        }
-        break;
-      }
-    }
-
     context = Handle<Context>(context->previous(), isolate);
   } while (follow_context_chain);
 
-  if (v8_flags.trace_contexts) {
+  if (FLAG_trace_contexts) {
     PrintF("=> no property/slot found\n");
   }
   return Handle<Object>::null();
-}
-
-bool NativeContext::HasTemplateLiteralObject(JSArray array) {
-  return array.map() == js_array_template_literal_object_map();
 }
 
 void NativeContext::AddOptimizedCode(CodeT code) {
   DCHECK(CodeKindCanDeoptimize(code.kind()));
   DCHECK(code.next_code_link().IsUndefined());
   code.set_next_code_link(OptimizedCodeListHead());
-  set(OPTIMIZED_CODE_LIST, code, UPDATE_WRITE_BARRIER, kReleaseStore);
+  set(OPTIMIZED_CODE_LIST, code, UPDATE_WEAK_WRITE_BARRIER, kReleaseStore);
 }
 
 Handle<Object> Context::ErrorMessageForCodeGenerationFromStrings() {
@@ -470,14 +439,6 @@ Handle<Object> Context::ErrorMessageForCodeGenerationFromStrings() {
   if (!result->IsUndefined(isolate)) return result;
   return isolate->factory()->NewStringFromStaticChars(
       "Code generation from strings disallowed for this context");
-}
-
-Handle<Object> Context::ErrorMessageForWasmCodeGeneration() {
-  Isolate* isolate = GetIsolate();
-  Handle<Object> result(error_message_for_wasm_code_gen(), isolate);
-  if (!result->IsUndefined(isolate)) return result;
-  return isolate->factory()->NewStringFromStaticChars(
-      "Wasm code generation disallowed by embedder");
 }
 
 #define COMPARE_NAME(index, type, name) \
@@ -571,22 +532,22 @@ void NativeContext::IncrementErrorsThrown() {
 
 int NativeContext::GetErrorsThrown() { return errors_thrown().value(); }
 
-static_assert(Context::MIN_CONTEXT_SLOTS == 2);
-static_assert(Context::MIN_CONTEXT_EXTENDED_SLOTS == 3);
-static_assert(NativeContext::kScopeInfoOffset ==
+STATIC_ASSERT(Context::MIN_CONTEXT_SLOTS == 2);
+STATIC_ASSERT(Context::MIN_CONTEXT_EXTENDED_SLOTS == 3);
+STATIC_ASSERT(NativeContext::kScopeInfoOffset ==
               Context::OffsetOfElementAt(NativeContext::SCOPE_INFO_INDEX));
-static_assert(NativeContext::kPreviousOffset ==
+STATIC_ASSERT(NativeContext::kPreviousOffset ==
               Context::OffsetOfElementAt(NativeContext::PREVIOUS_INDEX));
-static_assert(NativeContext::kExtensionOffset ==
+STATIC_ASSERT(NativeContext::kExtensionOffset ==
               Context::OffsetOfElementAt(NativeContext::EXTENSION_INDEX));
 
-static_assert(NativeContext::kStartOfStrongFieldsOffset ==
+STATIC_ASSERT(NativeContext::kStartOfStrongFieldsOffset ==
               Context::OffsetOfElementAt(-1));
-static_assert(NativeContext::kStartOfWeakFieldsOffset ==
+STATIC_ASSERT(NativeContext::kStartOfWeakFieldsOffset ==
               Context::OffsetOfElementAt(NativeContext::FIRST_WEAK_SLOT));
-static_assert(NativeContext::kMicrotaskQueueOffset ==
+STATIC_ASSERT(NativeContext::kMicrotaskQueueOffset ==
               Context::SizeFor(NativeContext::NATIVE_CONTEXT_SLOTS));
-static_assert(NativeContext::kSize ==
+STATIC_ASSERT(NativeContext::kSize ==
               (Context::SizeFor(NativeContext::NATIVE_CONTEXT_SLOTS) +
                kSystemPointerSize));
 

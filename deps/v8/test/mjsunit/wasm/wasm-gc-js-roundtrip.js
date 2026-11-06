@@ -17,17 +17,20 @@ let instance = (() => {
                  .exportAs('inc');
 
   builder.addFunction('struct_producer', makeSig([], [kWasmDataRef]))
-      .addBody([kGCPrefix, kExprStructNewDefault, struct])
+      .addBody([
+        kGCPrefix, kExprRttCanon, struct, kGCPrefix,
+        kExprStructNewDefaultWithRtt, struct
+      ])
       .exportFunc();
 
   builder.addFunction('array_producer', makeSig([], [kWasmDataRef]))
       .addBody([
-        kExprI32Const, 10,
-        kGCPrefix, kExprArrayNewDefault, array
+        kExprI32Const, 10, kGCPrefix, kExprRttCanon, array, kGCPrefix,
+        kExprArrayNewDefaultWithRtt, array
       ])
       .exportFunc();
 
-  builder.addFunction('i31_as_eq_producer', makeSig([], [kWasmEqRef]))
+  builder.addFunction('i31_producer', makeSig([], [kWasmI31Ref]))
       .addBody([kExprI32Const, 5, kGCPrefix, kExprI31New])
       .exportFunc();
 
@@ -36,6 +39,7 @@ let instance = (() => {
       .exportFunc();
 
   let test_types = {
+    i31: kWasmI31Ref,
     struct: kWasmDataRef,
     array: kWasmDataRef,
     raw_struct: struct,
@@ -45,14 +49,10 @@ let instance = (() => {
     eq: kWasmEqRef,
     func: kWasmFuncRef,
     any: kWasmAnyRef,
-    extern: kWasmExternRef,
-    none: kWasmNullRef,
-    nofunc: kWasmNullFuncRef,
-    noextern: kWasmNullExternRef,
   };
 
   for (key in test_types) {
-    let type = wasmRefNullType(test_types[key]);
+    let type = wasmOptRefType(test_types[key]);
     builder.addFunction(key + '_id', makeSig([type], [type]))
         .addBody([kExprLocalGet, 0])
         .exportFunc();
@@ -67,16 +67,26 @@ let instance = (() => {
 // Wasm-exposed null is the same as JS null.
 assertEquals(instance.exports.struct_null(), null);
 
+// We can roundtrip an i31.
+instance.exports.i31_id(instance.exports.i31_producer());
+// We can roundtrip any null as i31.
+instance.exports.i31_id(instance.exports.i31_null());
+instance.exports.i31_id(instance.exports.struct_null());
+// We cannot roundtrip a struct as i31.
+assertThrows(
+    () => instance.exports.i31_id(instance.exports.struct_producer()),
+    TypeError, 'type incompatibility when transforming from/to JS');
+
 // We can roundtrip a struct as dataref.
 instance.exports.data_id(instance.exports.struct_producer());
 // We can roundtrip an array as dataref.
 instance.exports.data_id(instance.exports.array_producer());
-// We can roundtrip null as dataref.
+// We can roundtrip any null as dataref.
 instance.exports.data_id(instance.exports.data_null());
+instance.exports.data_id(instance.exports.i31_null());
 // We cannot roundtrip an i31 as dataref.
 assertThrows(
-    () => instance.exports.data_id(instance.exports.i31_as_eq_producer()),
-    TypeError,
+    () => instance.exports.data_id(instance.exports.i31_producer()), TypeError,
     'type incompatibility when transforming from/to JS');
 
 // We can roundtrip a struct as eqref.
@@ -84,27 +94,35 @@ instance.exports.eq_id(instance.exports.struct_producer());
 // We can roundtrip an array as eqref.
 instance.exports.eq_id(instance.exports.array_producer());
 // We can roundtrip an i31 as eqref.
-instance.exports.eq_id(instance.exports.i31_as_eq_producer());
+instance.exports.eq_id(instance.exports.i31_producer());
 // We can roundtrip any null as eqref.
 instance.exports.eq_id(instance.exports.data_null());
-instance.exports.eq_id(instance.exports.eq_null());
+instance.exports.eq_id(instance.exports.i31_null());
 instance.exports.eq_id(instance.exports.func_null());
 // We cannot roundtrip a func as eqref.
 assertThrows(
     () => instance.exports.eq_id(instance.exports.func_producer()), TypeError,
     'type incompatibility when transforming from/to JS');
 
-// Anyref is not allowed at the JS interface.
-assertThrows(
-    () => instance.exports.any_null(), TypeError,
-    'type incompatibility when transforming from/to JS');
-assertThrows(
-    () => instance.exports.any_id(), TypeError,
-    'type incompatibility when transforming from/to JS');
+// We can roundtrip a struct as anyref.
+instance.exports.any_id(instance.exports.struct_producer());
+// We can roundtrip an array as anyref.
+instance.exports.any_id(instance.exports.array_producer());
+// We can roundtrip an i31 as anyref.
+instance.exports.any_id(instance.exports.i31_producer());
+// We can roundtrip a func as anyref.
+instance.exports.any_id(instance.exports.func_producer());
+// We can roundtrip any null as anyref.
+instance.exports.any_id(instance.exports.data_null());
+instance.exports.any_id(instance.exports.i31_null());
+instance.exports.any_id(instance.exports.func_null());
+// We can roundtrip a JS object as anyref.
+instance.exports.any_id(instance);
 
 // We can roundtrip a typed function.
 instance.exports.typed_func_id(instance.exports.func_producer());
 // We can roundtrip any null as typed funcion.
+instance.exports.typed_func_id(instance.exports.i31_null());
 instance.exports.typed_func_id(instance.exports.struct_null());
 // We cannot roundtrip a struct as typed funcion.
 assertThrows(
@@ -114,11 +132,11 @@ assertThrows(
 // We can roundtrip a func.
 instance.exports.func_id(instance.exports.func_producer());
 // We can roundtrip any null as func.
+instance.exports.func_id(instance.exports.i31_null());
 instance.exports.func_id(instance.exports.struct_null());
 // We cannot roundtrip an i31 as func.
 assertThrows(
-    () => instance.exports.func_id(instance.exports.i31_as_eq_producer()),
-    TypeError,
+    () => instance.exports.func_id(instance.exports.i31_producer()), TypeError,
     'type incompatibility when transforming from/to JS');
 
 // We cannot directly roundtrip structs or arrays.
@@ -129,16 +147,3 @@ assertThrows(
 assertThrows(
     () => instance.exports.raw_array_id(instance.exports.array_producer()),
     TypeError, 'type incompatibility when transforming from/to JS');
-
-// We can roundtrip an extern.
-assertEquals(null, instance.exports.extern_id(instance.exports.extern_null()));
-
-// The special null types are not allowed on the boundary from/to JS.
-for (const nullType of ["none", "nofunc", "noextern"]) {
-  assertThrows(
-    () => instance.exports[`${nullType}_null`](),
-    TypeError, 'type incompatibility when transforming from/to JS');
-  assertThrows(
-    () => instance.exports[`${nullType}_id`](),
-    TypeError, 'type incompatibility when transforming from/to JS');
-}

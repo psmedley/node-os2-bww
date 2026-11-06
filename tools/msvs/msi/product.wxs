@@ -76,10 +76,16 @@
       <ComponentRef Id="NodeRegistryEntries"/>
       <ComponentRef Id="NodeVarsScript"/>
       <ComponentRef Id="NodeStartMenu"/>
-      <ComponentRef Id="AppData" />
       <ComponentRef Id="InstallToolsBat" />
       <ComponentRef Id="SetInstallDirPermission" />
       <ComponentGroupRef Id="Product.Generated"/>
+
+      <Feature Id="NodeEtwSupport"
+               Level="1"
+               Title="!(loc.NodeEtwSupport_Title)"
+               Description="!(loc.NodeEtwSupport_Description)">
+        <ComponentRef Id="NodeEtwSupport"/>
+      </Feature>
     </Feature>
 
     <Feature Id="corepack"
@@ -100,7 +106,6 @@
       <ComponentRef Id="NpxCmdScript"/>
       <ComponentRef Id="NpxBashScript"/>
       <ComponentRef Id="NpmConfigurationFile"/>
-      <ComponentRef Id="AppData" />
       <ComponentRef Id="SetInstallDirPermission" />
       <ComponentGroupRef Id="NpmSourceFiles"/>
     </Feature>
@@ -168,6 +173,14 @@
       <Component Id="InstallToolsBat">
         <File Id="InstallToolsBat" KeyPath="yes" Source="$(var.RepoDir)\tools\msvs\install_tools\install_tools.bat"/>
       </Component>
+
+      <?if $(var.NoETW) != 1 ?>
+      <Component Id="NodeEtwSupport">
+        <File Id="node_etw_provider.man" Source="$(var.RepoDir)\src\res\node_etw_provider.man">
+          <util:EventManifest MessageFile="[INSTALLDIR]node.exe" ResourceFile="[INSTALLDIR]node.exe"/>
+        </File>
+      </Component>
+      <?endif?>
     </DirectoryRef>
 
     <DirectoryRef Id="INSTALLDIR">
@@ -248,16 +261,6 @@
         <Directory Id="NpmFolder" Name="npm">
           <Component Id="NpmConfigurationFile">
             <File Id="npm.rc" KeyPath="yes" Source="$(var.RepoDir)\tools\msvs\npm\npmrc"/>
-          </Component>
-        </Directory>
-      </Directory>
-
-      <Directory Id="AppDataFolder">
-        <Directory Id="AppDataDir" Name="npm">
-          <Component Id="AppData" Guid="D3B35D0E-D0F9-4D11-A773-D4608E90E1D1">
-            <CreateFolder />
-            <RemoveFolder Id="AppDataDir" On="uninstall" />
-            <RegistryValue Root="HKCU" Key="$(var.RegistryKeyPath)\Components" Type="string" Value="" />
           </Component>
         </Directory>
       </Directory>

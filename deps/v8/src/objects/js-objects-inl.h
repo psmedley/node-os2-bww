@@ -99,13 +99,6 @@ MaybeHandle<HeapObject> JSReceiver::GetPrototype(Isolate* isolate,
                                                  Handle<JSReceiver> receiver) {
   // We don't expect access checks to be needed on JSProxy objects.
   DCHECK(!receiver->IsAccessCheckNeeded() || receiver->IsJSObject());
-
-  if (receiver->IsWasmObject()) {
-    THROW_NEW_ERROR(isolate,
-                    NewTypeError(MessageTemplate::kWasmObjectsAreOpaque),
-                    HeapObject);
-  }
-
   PrototypeIterator iter(isolate, receiver, kStartAtReceiver,
                          PrototypeIterator::END_AT_NON_HIDDEN);
   do {
@@ -123,8 +116,8 @@ MaybeHandle<Object> JSReceiver::GetProperty(Isolate* isolate,
 
 // static
 V8_WARN_UNUSED_RESULT MaybeHandle<FixedArray> JSReceiver::OwnPropertyKeys(
-    Isolate* isolate, Handle<JSReceiver> object) {
-  return KeyAccumulator::GetKeys(isolate, object, KeyCollectionMode::kOwnOnly,
+    Handle<JSReceiver> object) {
+  return KeyAccumulator::GetKeys(object, KeyCollectionMode::kOwnOnly,
                                  ALL_PROPERTIES,
                                  GetKeysConversion::kConvertToString);
 }
@@ -465,13 +458,12 @@ void JSObject::WriteToField(InternalIndex descriptor, PropertyDetails details,
   FieldIndex index = FieldIndex::ForDescriptor(map(), descriptor);
   if (details.representation().IsDouble()) {
     // Manipulating the signaling NaN used for the hole and uninitialized
-    // double field sentinel in C++, e.g. with base::bit_cast or
-    // value()/set_value(), will change its value on ia32 (the x87 stack is used
-    // to return values and stores to the stack silently clear the signalling
-    // bit).
+    // double field sentinel in C++, e.g. with bit_cast or value()/set_value(),
+    // will change its value on ia32 (the x87 stack is used to return values
+    // and stores to the stack silently clear the signalling bit).
     uint64_t bits;
     if (value.IsSmi()) {
-      bits = base::bit_cast<uint64_t>(static_cast<double>(Smi::ToInt(value)));
+      bits = bit_cast<uint64_t>(static_cast<double>(Smi::ToInt(value)));
     } else if (value.IsUninitialized()) {
       bits = kHoleNanInt64;
     } else {
@@ -577,8 +569,21 @@ void JSObject::InitializeBody(Map map, int start_offset,
 
 TQ_OBJECT_CONSTRUCTORS_IMPL(JSExternalObject)
 
-EXTERNAL_POINTER_ACCESSORS(JSExternalObject, value, void*, kValueOffset,
-                           kExternalObjectValueTag)
+DEF_GETTER(JSExternalObject, value, void*) {
+  Isolate* isolate = GetIsolateForSandbox(*this);
+  return reinterpret_cast<void*>(
+      ReadExternalPointerField(kValueOffset, isolate, kExternalObjectValueTag));
+}
+
+void JSExternalObject::AllocateExternalPointerEntries(Isolate* isolate) {
+  InitExternalPointerField(kValueOffset, isolate, kExternalObjectValueTag);
+}
+
+void JSExternalObject::set_value(Isolate* isolate, void* value) {
+  WriteExternalPointerField(kValueOffset, isolate,
+                            reinterpret_cast<Address>(value),
+                            kExternalObjectValueTag);
+}
 
 DEF_GETTER(JSGlobalObject, native_context_unchecked, Object) {
   return TaggedField<Object, kNativeContextOffset>::Relaxed_Load(cage_base,
@@ -690,10 +695,6 @@ DEF_GETTER(JSObject, HasAnyNonextensibleElements, bool) {
 
 DEF_GETTER(JSObject, HasSealedElements, bool) {
   return IsSealedElementsKind(GetElementsKind(cage_base));
-}
-
-DEF_GETTER(JSObject, HasSharedArrayElements, bool) {
-  return GetElementsKind(cage_base) == SHARED_ARRAY_ELEMENTS;
 }
 
 DEF_GETTER(JSObject, HasNonextensibleElements, bool) {
@@ -914,7 +915,7 @@ static inline bool ShouldConvertToSlowElements(JSObject object,
                                                uint32_t capacity,
                                                uint32_t index,
                                                uint32_t* new_capacity) {
-  static_assert(JSObject::kMaxUncheckedOldFastElementsLength <=
+  STATIC_ASSERT(JSObject::kMaxUncheckedOldFastElementsLength <=
                 JSObject::kMaxUncheckedFastElementsLength);
   if (index < capacity) {
     *new_capacity = capacity;

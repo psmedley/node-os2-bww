@@ -2,6 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// Flags: --always-turbofan --no-lazy
+// Flags: --always-opt --no-lazy
 
 (function() { ((s = 17, y = s) => s)() })();

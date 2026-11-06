@@ -22,9 +22,9 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-#define TRACE(...)                                           \
-  do {                                                       \
-    if (v8_flags.trace_turbo_scheduler) PrintF(__VA_ARGS__); \
+#define TRACE(...)                                       \
+  do {                                                   \
+    if (FLAG_trace_turbo_scheduler) PrintF(__VA_ARGS__); \
   } while (false)
 
 Scheduler::Scheduler(Zone* zone, Graph* graph, Schedule* schedule, Flags flags,
@@ -195,7 +195,7 @@ void Scheduler::IncrementUnscheduledUseCount(Node* node, Node* from) {
   }
 
   ++(GetData(node)->unscheduled_count_);
-  if (v8_flags.trace_turbo_scheduler) {
+  if (FLAG_trace_turbo_scheduler) {
     TRACE("  Use count of #%d:%s (used by #%d:%s)++ = %d\n", node->id(),
           node->op()->mnemonic(), from->id(), from->op()->mnemonic(),
           GetData(node)->unscheduled_count_);
@@ -215,7 +215,7 @@ void Scheduler::DecrementUnscheduledUseCount(Node* node, Node* from) {
 
   DCHECK_LT(0, GetData(node)->unscheduled_count_);
   --(GetData(node)->unscheduled_count_);
-  if (v8_flags.trace_turbo_scheduler) {
+  if (FLAG_trace_turbo_scheduler) {
     TRACE("  Use count of #%d:%s (used by #%d:%s)-- = %d\n", node->id(),
           node->op()->mnemonic(), from->id(), from->op()->mnemonic(),
           GetData(node)->unscheduled_count_);
@@ -468,9 +468,21 @@ class CFGBuilder : public ZoneObject {
 
     BranchHint hint_from_profile = BranchHint::kNone;
     if (const ProfileDataFromFile* profile_data = scheduler_->profile_data()) {
-      hint_from_profile =
-          profile_data->GetHint(successor_blocks[0]->id().ToSize(),
-                                successor_blocks[1]->id().ToSize());
+      double block_zero_count =
+          profile_data->GetCounter(successor_blocks[0]->id().ToSize());
+      double block_one_count =
+          profile_data->GetCounter(successor_blocks[1]->id().ToSize());
+      // If a branch is visited a non-trivial number of times and substantially
+      // more often than its alternative, then mark it as likely.
+      constexpr double kMinimumCount = 100000;
+      constexpr double kThresholdRatio = 4000;
+      if (block_zero_count > kMinimumCount &&
+          block_zero_count / kThresholdRatio > block_one_count) {
+        hint_from_profile = BranchHint::kTrue;
+      } else if (block_one_count > kMinimumCount &&
+                 block_one_count / kThresholdRatio > block_zero_count) {
+        hint_from_profile = BranchHint::kFalse;
+      }
     }
 
     // Consider branch hints.
@@ -495,8 +507,7 @@ class CFGBuilder : public ZoneObject {
         break;
     }
 
-    if (v8_flags.warn_about_builtin_profile_data &&
-        hint_from_profile != BranchHint::kNone &&
+    if (hint_from_profile != BranchHint::kNone &&
         BranchHintOf(branch->op()) != BranchHint::kNone &&
         hint_from_profile != BranchHintOf(branch->op())) {
       PrintF("Warning: profiling data overrode manual branch hint.\n");
@@ -704,7 +715,7 @@ class SpecialRPONumberer : public ZoneObject {
   // Print and verify the special reverse-post-order.
   void PrintAndVerifySpecialRPO() {
 #if DEBUG
-    if (v8_flags.trace_turbo_scheduler) PrintRPO();
+    if (FLAG_trace_turbo_scheduler) PrintRPO();
     VerifySpecialRPO();
 #endif
   }
@@ -1174,7 +1185,7 @@ BasicBlock* Scheduler::GetCommonDominator(BasicBlock* b1, BasicBlock* b2) {
   // Try to find the common dominator by walking, if there is a chance of
   // finding it quickly.
   constexpr int kCacheGranularity = 63;
-  static_assert((kCacheGranularity & (kCacheGranularity + 1)) == 0);
+  STATIC_ASSERT((kCacheGranularity & (kCacheGranularity + 1)) == 0);
   int depth_difference = b1->dominator_depth() - b2->dominator_depth();
   if (depth_difference > -kCacheGranularity &&
       depth_difference < kCacheGranularity) {
@@ -1481,7 +1492,7 @@ void Scheduler::ScheduleEarly() {
   }
 
   TRACE("--- SCHEDULE EARLY -----------------------------------------\n");
-  if (v8_flags.trace_turbo_scheduler) {
+  if (FLAG_trace_turbo_scheduler) {
     TRACE("roots: ");
     for (Node* node : schedule_root_nodes_) {
       TRACE("#%d:%s ", node->id(), node->op()->mnemonic());
@@ -1847,7 +1858,7 @@ class ScheduleLateNodeVisitor {
 
 void Scheduler::ScheduleLate() {
   TRACE("--- SCHEDULE LATE ------------------------------------------\n");
-  if (v8_flags.trace_turbo_scheduler) {
+  if (FLAG_trace_turbo_scheduler) {
     TRACE("roots: ");
     for (Node* node : schedule_root_nodes_) {
       TRACE("#%d:%s ", node->id(), node->op()->mnemonic());
@@ -1891,7 +1902,7 @@ void Scheduler::SealFinalSchedule() {
 
 void Scheduler::FuseFloatingControl(BasicBlock* block, Node* node) {
   TRACE("--- FUSE FLOATING CONTROL ----------------------------------\n");
-  if (v8_flags.trace_turbo_scheduler) {
+  if (FLAG_trace_turbo_scheduler) {
     StdoutStream{} << "Schedule before control flow fusion:\n" << *schedule_;
   }
 
@@ -1919,7 +1930,7 @@ void Scheduler::FuseFloatingControl(BasicBlock* block, Node* node) {
       }
     }
   }
-  if (v8_flags.trace_turbo_scheduler) {
+  if (FLAG_trace_turbo_scheduler) {
     TRACE("propagation roots: ");
     for (Node* r : propagation_roots) {
       TRACE("#%d:%s ", r->id(), r->op()->mnemonic());
@@ -1934,7 +1945,7 @@ void Scheduler::FuseFloatingControl(BasicBlock* block, Node* node) {
   scheduled_nodes_.resize(schedule_->BasicBlockCount());
   MovePlannedNodes(block, schedule_->block(node));
 
-  if (v8_flags.trace_turbo_scheduler) {
+  if (FLAG_trace_turbo_scheduler) {
     StdoutStream{} << "Schedule after control flow fusion:\n" << *schedule_;
   }
 }

@@ -6,6 +6,8 @@
 #include <stdint.h>
 
 #include "src/execution/isolate.h"
+#include "src/objects/objects-inl.h"
+#include "src/objects/objects.h"
 #include "src/wasm/wasm-module-builder.h"
 #include "test/common/wasm/test-signatures.h"
 #include "test/fuzzer/wasm-fuzzer-common.h"

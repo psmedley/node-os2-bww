@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2022 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2020-2025 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -133,6 +133,7 @@ static int eddsa_digest_signverify_init(void *vpeddsactx, const char *mdname,
         /* Should never happen */
         ERR_raise(ERR_LIB_PROV, ERR_R_INTERNAL_ERROR);
         ossl_ecx_key_free(edkey);
+        WPACKET_cleanup(&pkt);
         return 0;
     }
     if (ret && WPACKET_finish(&pkt)) {
@@ -162,6 +163,10 @@ int ed25519_digest_sign(void *vpeddsactx, unsigned char *sigret,
     }
     if (sigsize < ED25519_SIGSIZE) {
         ERR_raise(ERR_LIB_PROV, PROV_R_OUTPUT_BUFFER_TOO_SMALL);
+        return 0;
+    }
+    if (edkey->privkey == NULL) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_NOT_A_PRIVATE_KEY);
         return 0;
     }
 #ifdef S390X_EC_ASM
@@ -199,6 +204,10 @@ int ed448_digest_sign(void *vpeddsactx, unsigned char *sigret,
     }
     if (sigsize < ED448_SIGSIZE) {
         ERR_raise(ERR_LIB_PROV, PROV_R_OUTPUT_BUFFER_TOO_SMALL);
+        return 0;
+    }
+    if (edkey->privkey == NULL) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_NOT_A_PRIVATE_KEY);
         return 0;
     }
 #ifdef S390X_EC_ASM

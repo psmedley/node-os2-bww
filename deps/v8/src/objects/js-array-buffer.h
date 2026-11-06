@@ -28,9 +28,7 @@ class JSArrayBuffer
 // On 32-bit architectures we limit this to 2GiB, so that
 // we can continue to use CheckBounds with the Unsigned31
 // restriction for the length.
-#if V8_ENABLE_SANDBOX
-  static constexpr size_t kMaxByteLength = kMaxSafeBufferSizeForSandbox;
-#elif V8_HOST_ARCH_32_BIT
+#if V8_HOST_ARCH_32_BIT
   static constexpr size_t kMaxByteLength = kMaxInt;
 #else
   static constexpr size_t kMaxByteLength = kMaxSafeInteger;
@@ -38,9 +36,6 @@ class JSArrayBuffer
 
   // [byte_length]: length in bytes
   DECL_PRIMITIVE_ACCESSORS(byte_length, size_t)
-
-  // [max_byte_length]: maximum length in bytes
-  DECL_PRIMITIVE_ACCESSORS(max_byte_length, size_t)
 
   // [backing_store]: backing memory for this array
   // It should not be assumed that this will be nullptr for empty ArrayBuffers.
@@ -78,9 +73,9 @@ class JSArrayBuffer
   // GrowableSharedArrayBuffer.
   DECL_BOOLEAN_ACCESSORS(is_shared)
 
-  // [is_resizable_by_js]: true if this is a ResizableArrayBuffer or a
+  // [is_resizable]: true if this is a ResizableArrayBuffer or a
   // GrowableSharedArrayBuffer.
-  DECL_BOOLEAN_ACCESSORS(is_resizable_by_js)
+  DECL_BOOLEAN_ACCESSORS(is_resizable)
 
   // An ArrayBuffer is empty if its BackingStore is empty or if there is none.
   // An empty ArrayBuffer will have a byte_length of zero but not necessarily a
@@ -262,10 +257,10 @@ class JSArrayBufferView
   DECL_BOOLEAN_ACCESSORS(is_backed_by_rab)
   inline bool IsVariableLength() const;
 
-  static constexpr int kEndOfTaggedFieldsOffset = kRawByteOffsetOffset;
+  static constexpr int kEndOfTaggedFieldsOffset = kByteOffsetOffset;
 
-  static_assert(IsAligned(kRawByteOffsetOffset, kUIntptrSize));
-  static_assert(IsAligned(kRawByteLengthOffset, kUIntptrSize));
+  STATIC_ASSERT(IsAligned(kByteOffsetOffset, kUIntptrSize));
+  STATIC_ASSERT(IsAligned(kByteLengthOffset, kUIntptrSize));
 
   TQ_OBJECT_CONSTRUCTORS(JSArrayBufferView)
 };
@@ -276,7 +271,6 @@ class JSTypedArray
   // TODO(v8:4153): This should be equal to JSArrayBuffer::kMaxByteLength
   // eventually.
   static constexpr size_t kMaxLength = v8::TypedArray::kMaxLength;
-  static_assert(kMaxLength <= JSArrayBuffer::kMaxByteLength);
 
   // [length]: length of typed array in elements.
   DECL_PRIMITIVE_GETTER(length, size_t)
@@ -315,10 +309,6 @@ class JSTypedArray
   inline size_t GetByteLength() const;
   inline bool IsOutOfBounds() const;
   inline bool IsDetachedOrOutOfBounds() const;
-
-  static inline void ForFixedTypedArray(ExternalArrayType array_type,
-                                        size_t* element_size,
-                                        ElementsKind* element_kind);
 
   static size_t LengthTrackingGsabBackedTypedArrayLength(Isolate* isolate,
                                                          Address raw_array);
@@ -363,8 +353,8 @@ class JSTypedArray
   DECL_VERIFIER(JSTypedArray)
 
   // TODO(v8:9287): Re-enable when GCMole stops mixing 32/64 bit configs.
-  // static_assert(IsAligned(kLengthOffset, kTaggedSize));
-  // static_assert(IsAligned(kExternalPointerOffset, kTaggedSize));
+  // STATIC_ASSERT(IsAligned(kLengthOffset, kTaggedSize));
+  // STATIC_ASSERT(IsAligned(kExternalPointerOffset, kTaggedSize));
 
   static const int kSizeWithEmbedderFields =
       kHeaderSize +
@@ -382,7 +372,6 @@ class JSTypedArray
   template <typename IsolateT>
   friend class Deserializer;
   friend class Factory;
-  friend class WebSnapshotDeserializer;
 
   DECL_PRIMITIVE_SETTER(length, size_t)
   // Reads the "length" field, doesn't assert the TypedArray is not RAB / GSAB
@@ -411,7 +400,7 @@ class JSDataView
   DECL_VERIFIER(JSDataView)
 
   // TODO(v8:9287): Re-enable when GCMole stops mixing 32/64 bit configs.
-  // static_assert(IsAligned(kDataPointerOffset, kTaggedSize));
+  // STATIC_ASSERT(IsAligned(kDataPointerOffset, kTaggedSize));
 
   static const int kSizeWithEmbedderFields =
       kHeaderSize +

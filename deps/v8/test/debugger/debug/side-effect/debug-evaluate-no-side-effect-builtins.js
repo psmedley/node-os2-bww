@@ -77,8 +77,7 @@ function listener(event, exec_state, event_data, data) {
     fail(`Array.of(1, 2, 3)`);
     var function_param = [
       "flatMap", "forEach", "every", "some", "reduce", "reduceRight", "find",
-      "filter", "map", "findIndex", "findLast", "findLastIndex", "group",
-      "groupToMap"
+      "filter", "map", "findIndex", "findLast", "findLastIndex"
     ];
     var fails = ["pop", "push", "reverse", "shift", "unshift", "splice",
       "sort", "copyWithin", "fill"];

@@ -302,7 +302,7 @@
     {
       "name": "BytecodeHandlers",
       "path": ["BytecodeHandlers"],
-      "flags": [ "--no-turbofan" ],
+      "flags": [ "--no-opt" ],
       "tests": [
         {
           "name": "Compare",
@@ -318,7 +318,6 @@
             {"name": "String-StrictEquals-True"},
             {"name": "String-StrictEquals-False"},
             {"name": "SmiString-StrictEquals"},
-            {"name": "Boolean-StrictEquals"},
             {"name": "Smi-Equals-True"},
             {"name": "Smi-Equals-False"},
             {"name": "Number-Equals-True"},
@@ -461,7 +460,7 @@
     {
       "name": "InterpreterEntryTrampoline",
       "path": ["InterpreterEntryTrampoline"],
-      "flags": ["--no-turbofan"],
+      "flags": ["--no-opt"],
       "tests": [
         {
           "name": "Arguments",

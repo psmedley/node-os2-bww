@@ -19,7 +19,7 @@ function AllocMemory(pages = 1, max = pages) {
       }
   }
 
-  let worker = new Worker(workerCode, {type: 'function'});
+  let worker = new Worker(workerCode);
 
   let time = performance.now();
 

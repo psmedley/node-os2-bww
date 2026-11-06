@@ -51,6 +51,9 @@ enum class SmiCheck { kOmit, kInline };
 #elif V8_TARGET_ARCH_PPC || V8_TARGET_ARCH_PPC64
 #include "src/codegen/ppc/constants-ppc.h"
 #include "src/codegen/ppc/macro-assembler-ppc.h"
+#elif V8_TARGET_ARCH_MIPS
+#include "src/codegen/mips/constants-mips.h"
+#include "src/codegen/mips/macro-assembler-mips.h"
 #elif V8_TARGET_ARCH_MIPS64
 #include "src/codegen/mips64/constants-mips64.h"
 #include "src/codegen/mips64/macro-assembler-mips64.h"
@@ -60,9 +63,9 @@ enum class SmiCheck { kOmit, kInline };
 #elif V8_TARGET_ARCH_S390
 #include "src/codegen/s390/constants-s390.h"
 #include "src/codegen/s390/macro-assembler-s390.h"
-#elif V8_TARGET_ARCH_RISCV32 || V8_TARGET_ARCH_RISCV64
-#include "src/codegen/riscv/constants-riscv.h"
-#include "src/codegen/riscv/macro-assembler-riscv.h"
+#elif V8_TARGET_ARCH_RISCV64
+#include "src/codegen/riscv64/constants-riscv64.h"
+#include "src/codegen/riscv64/macro-assembler-riscv64.h"
 #else
 #error Unsupported target architecture.
 #endif
@@ -136,10 +139,10 @@ class V8_NODISCARD FrameAndConstantPoolScope {
       : masm_(masm),
         type_(type),
         old_has_frame_(masm->has_frame()),
-        old_constant_pool_available_(V8_EMBEDDED_CONSTANT_POOL_BOOL &&
+        old_constant_pool_available_(FLAG_enable_embedded_constant_pool &&
                                      masm->is_constant_pool_available()) {
     masm->set_has_frame(true);
-    if (V8_EMBEDDED_CONSTANT_POOL_BOOL) {
+    if (FLAG_enable_embedded_constant_pool) {
       masm->set_constant_pool_available(true);
     }
     if (type_ != StackFrame::MANUAL && type_ != StackFrame::NO_FRAME_TYPE) {
@@ -150,7 +153,7 @@ class V8_NODISCARD FrameAndConstantPoolScope {
   ~FrameAndConstantPoolScope() {
     masm_->LeaveFrame(type_);
     masm_->set_has_frame(old_has_frame_);
-    if (V8_EMBEDDED_CONSTANT_POOL_BOOL) {
+    if (FLAG_enable_embedded_constant_pool) {
       masm_->set_constant_pool_available(old_constant_pool_available_);
     }
   }
@@ -169,14 +172,14 @@ class V8_NODISCARD ConstantPoolUnavailableScope {
  public:
   explicit ConstantPoolUnavailableScope(Assembler* assembler)
       : assembler_(assembler),
-        old_constant_pool_available_(V8_EMBEDDED_CONSTANT_POOL_BOOL &&
+        old_constant_pool_available_(FLAG_enable_embedded_constant_pool &&
                                      assembler->is_constant_pool_available()) {
-    if (V8_EMBEDDED_CONSTANT_POOL_BOOL) {
+    if (FLAG_enable_embedded_constant_pool) {
       assembler->set_constant_pool_available(false);
     }
   }
   ~ConstantPoolUnavailableScope() {
-    if (V8_EMBEDDED_CONSTANT_POOL_BOOL) {
+    if (FLAG_enable_embedded_constant_pool) {
       assembler_->set_constant_pool_available(old_constant_pool_available_);
     }
   }

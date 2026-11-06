@@ -32,8 +32,7 @@ class UnifiedHeapSnapshotTest : public UnifiedHeapTest {
  public:
   const v8::HeapSnapshot* TakeHeapSnapshot() {
     v8::HeapProfiler* heap_profiler = v8_isolate()->GetHeapProfiler();
-    return heap_profiler->TakeHeapSnapshot(nullptr, nullptr,
-                                           false /* hide internals */);
+    return heap_profiler->TakeHeapSnapshot();
   }
 };
 
@@ -121,7 +120,7 @@ constexpr const char kExpectedCppCrossThreadRootsName[] =
 template <typename T>
 constexpr const char* GetExpectedName() {
   if (std::is_base_of<cppgc::NameProvider, T>::value ||
-      cppgc::NameProvider::SupportsCppClassNamesAsObjectNames()) {
+      !cppgc::NameProvider::HideInternalNames()) {
     return T::kExpectedName;
   } else {
     return cppgc::NameProvider::kHiddenName;
@@ -158,7 +157,7 @@ TEST_F(UnifiedHeapSnapshotTest, RetainingUnnamedType) {
       cppgc::MakeGarbageCollected<BaseWithoutName>(allocation_handle());
   const v8::HeapSnapshot* snapshot = TakeHeapSnapshot();
   EXPECT_TRUE(IsValidSnapshot(snapshot));
-  if (!cppgc::NameProvider::SupportsCppClassNamesAsObjectNames()) {
+  if (cppgc::NameProvider::HideInternalNames()) {
     EXPECT_FALSE(ContainsRetainingPath(
         *snapshot, {kExpectedCppRootsName, cppgc::NameProvider::kHiddenName}));
   } else {
@@ -301,7 +300,7 @@ cppgc::Persistent<GCedWithJSRef> SetupWrapperWrappablePair(
       testing_scope.context(), &GCedWithJSRef::kWrappableType,
       gc_w_js_ref.Get(), name);
   gc_w_js_ref->SetV8Object(testing_scope.isolate(), wrapper_object);
-  return gc_w_js_ref;
+  return std::move(gc_w_js_ref);
 }
 
 template <typename Callback>

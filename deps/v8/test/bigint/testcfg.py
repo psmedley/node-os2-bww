@@ -25,10 +25,10 @@ class TestLoader(testsuite.TestLoader):
       os.path.join(self.test_config.shell_dir, SHELL))
     if utils.IsWindows():
       shell += ".exe"
-    cmd = self.ctx.command(
-        cmd_prefix=self.test_config.command_prefix,
-        shell=shell,
-        args=['--list'] + self.test_config.extra_flags)
+    cmd = command.Command(
+      cmd_prefix=self.test_config.command_prefix,
+      shell=shell,
+      args=['--list'] + self.test_config.extra_flags)
     output = cmd.execute()
 
     if output.exit_code != 0:
@@ -57,3 +57,7 @@ class TestCase(testcase.TestCase):
 
   def get_shell(self):
     return SHELL
+
+
+def GetSuite(*args, **kwargs):
+  return TestSuite(*args, **kwargs)

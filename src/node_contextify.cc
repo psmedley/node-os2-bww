@@ -49,6 +49,7 @@ using v8::HandleScope;
 using v8::IndexedPropertyHandlerConfiguration;
 using v8::Int32;
 using v8::Isolate;
+using v8::Just;
 using v8::Local;
 using v8::Maybe;
 using v8::MaybeLocal;
@@ -58,7 +59,7 @@ using v8::MicrotaskQueue;
 using v8::MicrotasksPolicy;
 using v8::Name;
 using v8::NamedPropertyHandlerConfiguration;
-using v8::Number;
+using v8::Nothing;
 using v8::Object;
 using v8::ObjectTemplate;
 using v8::PrimitiveArray;
@@ -71,11 +72,11 @@ using v8::Script;
 using v8::ScriptCompiler;
 using v8::ScriptOrigin;
 using v8::String;
+using v8::Symbol;
 using v8::Uint32;
 using v8::UnboundScript;
 using v8::Value;
 using v8::WeakCallbackInfo;
-using v8::WeakCallbackType;
 
 // The vm module executes code in a sandboxed environment with a different
 // global object than the rest of the code. This is achieved by applying
@@ -247,7 +248,7 @@ BaseObjectPtr<ContextifyContext> ContextifyContext::New(
     const ContextOptions& options) {
   HandleScope scope(env->isolate());
   // This only initializes part of the context. The primordials are
-  // only initilaized when needed because even deserializing them slows
+  // only initialized when needed because even deserializing them slows
   // things down significantly and they are only needed in rare occasions
   // in the vm contexts.
   if (InitializeContextRuntime(v8_context).IsNothing()) {
@@ -527,8 +528,24 @@ void ContextifyContext::PropertySetterCallback(
       !is_function)
     return;
 
-  USE(ctx->sandbox()->Set(context, property, value));
-  args.GetReturnValue().Set(value);
+  if (!is_declared && property->IsSymbol()) return;
+  if (ctx->sandbox()->Set(context, property, value).IsNothing()) return;
+
+  Local<Value> desc;
+  if (is_declared_on_sandbox &&
+      ctx->sandbox()
+          ->GetOwnPropertyDescriptor(context, property)
+          .ToLocal(&desc) &&
+      !desc->IsUndefined()) {
+    Environment* env = Environment::GetCurrent(context);
+    Local<Object> desc_obj = desc.As<Object>();
+
+    // We have to specify the return value for any contextual or get/set
+    // property
+    if (desc_obj->HasOwnProperty(context, env->get_string()).FromMaybe(false) ||
+        desc_obj->HasOwnProperty(context, env->set_string()).FromMaybe(false))
+      args.GetReturnValue().Set(value);
+  }
 }
 
 // static
@@ -770,10 +787,12 @@ void ContextifyScript::New(const FunctionCallbackInfo<Value>& args) {
   bool produce_cached_data = false;
   Local<Context> parsing_context = context;
 
+  Local<Symbol> id_symbol;
   if (argc > 2) {
     // new ContextifyScript(code, filename, lineOffset, columnOffset,
-    //                      cachedData, produceCachedData, parsingContext)
-    CHECK_EQ(argc, 7);
+    //                      cachedData, produceCachedData, parsingContext,
+    //                      hostDefinedOptionId)
+    CHECK_EQ(argc, 8);
     CHECK(args[2]->IsNumber());
     line_offset = args[2].As<Int32>()->Value();
     CHECK(args[3]->IsNumber());
@@ -792,6 +811,8 @@ void ContextifyScript::New(const FunctionCallbackInfo<Value>& args) {
       CHECK_NOT_NULL(sandbox);
       parsing_context = sandbox->context();
     }
+    CHECK(args[7]->IsSymbol());
+    id_symbol = args[7].As<Symbol>();
   }
 
   ContextifyScript* contextify_script =
@@ -815,10 +836,8 @@ void ContextifyScript::New(const FunctionCallbackInfo<Value>& args) {
 
   Local<PrimitiveArray> host_defined_options =
       PrimitiveArray::New(isolate, loader::HostDefinedOptions::kLength);
-  host_defined_options->Set(isolate, loader::HostDefinedOptions::kType,
-                            Number::New(isolate, loader::ScriptType::kScript));
-  host_defined_options->Set(isolate, loader::HostDefinedOptions::kID,
-                            Number::New(isolate, contextify_script->id()));
+  host_defined_options->Set(
+      isolate, loader::HostDefinedOptions::kID, id_symbol);
 
   ScriptOrigin origin(isolate,
                       filename,
@@ -855,40 +874,85 @@ void ContextifyScript::New(const FunctionCallbackInfo<Value>& args) {
                      "ContextifyScript::New");
     return;
   }
-  contextify_script->script_.Reset(isolate, v8_script);
 
-  Local<Context> env_context = env->context();
-  if (compile_options == ScriptCompiler::kConsumeCodeCache) {
-    args.This()->Set(
-        env_context,
-        env->cached_data_rejected_string(),
-        Boolean::New(isolate, source.GetCachedData()->rejected)).Check();
-  } else if (produce_cached_data) {
-    std::unique_ptr<ScriptCompiler::CachedData> cached_data{
-        ScriptCompiler::CreateCodeCache(v8_script)};
-    bool cached_data_produced = cached_data != nullptr;
-    if (cached_data_produced) {
-      MaybeLocal<Object> buf = Buffer::Copy(
-          env,
-          reinterpret_cast<const char*>(cached_data->data),
-          cached_data->length);
-      args.This()->Set(env_context,
-                       env->cached_data_string(),
-                       buf.ToLocalChecked()).Check();
-    }
-    args.This()->Set(
-        env_context,
-        env->cached_data_produced_string(),
-        Boolean::New(isolate, cached_data_produced)).Check();
+  contextify_script->script_.Reset(isolate, v8_script);
+  contextify_script->script_.SetWeak();
+  contextify_script->object()->SetInternalFieldForNodeCore(kUnboundScriptSlot,
+                                                           v8_script);
+
+  std::unique_ptr<ScriptCompiler::CachedData> new_cached_data;
+  if (produce_cached_data) {
+    new_cached_data.reset(ScriptCompiler::CreateCodeCache(v8_script));
   }
 
-  args.This()
-      ->Set(env_context,
-            env->source_map_url_string(),
-            v8_script->GetSourceMappingURL())
-      .Check();
+  if (contextify_script->object()
+          ->SetPrivate(context, env->host_defined_option_symbol(), id_symbol)
+          .IsNothing()) {
+    return;
+  }
+
+  if (StoreCodeCacheResult(env,
+                           args.This(),
+                           compile_options,
+                           source,
+                           produce_cached_data,
+                           std::move(new_cached_data))
+          .IsNothing()) {
+    return;
+  }
+
+  if (args.This()
+          ->Set(env->context(),
+                env->source_map_url_string(),
+                v8_script->GetSourceMappingURL())
+          .IsNothing())
+    return;
 
   TRACE_EVENT_END0(TRACING_CATEGORY_NODE2(vm, script), "ContextifyScript::New");
+}
+
+Maybe<bool> StoreCodeCacheResult(
+    Environment* env,
+    Local<Object> target,
+    ScriptCompiler::CompileOptions compile_options,
+    const v8::ScriptCompiler::Source& source,
+    bool produce_cached_data,
+    std::unique_ptr<ScriptCompiler::CachedData> new_cached_data) {
+  Local<Context> context;
+  if (!target->GetCreationContext().ToLocal(&context)) {
+    return Nothing<bool>();
+  }
+  if (compile_options == ScriptCompiler::kConsumeCodeCache) {
+    if (target
+            ->Set(
+                context,
+                env->cached_data_rejected_string(),
+                Boolean::New(env->isolate(), source.GetCachedData()->rejected))
+            .IsNothing()) {
+      return Nothing<bool>();
+    }
+  }
+  if (produce_cached_data) {
+    bool cached_data_produced = new_cached_data != nullptr;
+    if (cached_data_produced) {
+      MaybeLocal<Object> buf =
+          Buffer::Copy(env,
+                       reinterpret_cast<const char*>(new_cached_data->data),
+                       new_cached_data->length);
+      if (target->Set(context, env->cached_data_string(), buf.ToLocalChecked())
+              .IsNothing()) {
+        return Nothing<bool>();
+      }
+    }
+    if (target
+            ->Set(context,
+                  env->cached_data_produced_string(),
+                  Boolean::New(env->isolate(), cached_data_produced))
+            .IsNothing()) {
+      return Nothing<bool>();
+    }
+  }
+  return Just(true);
 }
 
 bool ContextifyScript::InstanceOf(Environment* env,
@@ -1064,17 +1128,11 @@ bool ContextifyScript::EvalMachine(Local<Context> context,
 
 
 ContextifyScript::ContextifyScript(Environment* env, Local<Object> object)
-    : BaseObject(env, object),
-      id_(env->get_next_script_id()) {
+    : BaseObject(env, object) {
   MakeWeak();
-  env->id_to_script_map.emplace(id_, this);
 }
 
-
-ContextifyScript::~ContextifyScript() {
-  env()->id_to_script_map.erase(id_);
-}
-
+ContextifyScript::~ContextifyScript() {}
 
 void ContextifyContext::CompileFunction(
     const FunctionCallbackInfo<Value>& args) {
@@ -1136,6 +1194,10 @@ void ContextifyContext::CompileFunction(
     params_buf = args[8].As<Array>();
   }
 
+  // Argument 10: host-defined option symbol
+  CHECK(args[9]->IsSymbol());
+  Local<Symbol> id_symbol = args[9].As<Symbol>();
+
   // Read cache from cached data buffer
   ScriptCompiler::CachedData* cached_data = nullptr;
   if (!cached_data_buf.IsEmpty()) {
@@ -1144,18 +1206,11 @@ void ContextifyContext::CompileFunction(
       data + cached_data_buf->ByteOffset(), cached_data_buf->ByteLength());
   }
 
-  // Get the function id
-  uint32_t id = env->get_next_function_id();
-
   // Set host_defined_options
   Local<PrimitiveArray> host_defined_options =
       PrimitiveArray::New(isolate, loader::HostDefinedOptions::kLength);
   host_defined_options->Set(
-      isolate,
-      loader::HostDefinedOptions::kType,
-      Number::New(isolate, loader::ScriptType::kFunction));
-  host_defined_options->Set(
-      isolate, loader::HostDefinedOptions::kID, Number::New(isolate, id));
+      isolate, loader::HostDefinedOptions::kID, id_symbol);
 
   ScriptOrigin origin(isolate,
                       filename,
@@ -1220,20 +1275,13 @@ void ContextifyContext::CompileFunction(
     }
     return;
   }
-
-  Local<Object> cache_key;
-  if (!env->compiled_fn_entry_template()->NewInstance(
-           context).ToLocal(&cache_key)) {
+  if (fn->SetPrivate(context, env->host_defined_option_symbol(), id_symbol)
+          .IsNothing()) {
     return;
   }
-  CompiledFnEntry* entry = new CompiledFnEntry(env, cache_key, id, fn);
-  env->id_to_function_map.emplace(id, entry);
 
   Local<Object> result = Object::New(isolate);
   if (result->Set(parsing_context, env->function_string(), fn).IsNothing())
-    return;
-  if (result->Set(parsing_context, env->cache_key_string(), cache_key)
-          .IsNothing())
     return;
   if (result
           ->Set(parsing_context,
@@ -1242,50 +1290,21 @@ void ContextifyContext::CompileFunction(
           .IsNothing())
     return;
 
+  std::unique_ptr<ScriptCompiler::CachedData> new_cached_data;
   if (produce_cached_data) {
-    const std::unique_ptr<ScriptCompiler::CachedData> cached_data(
-        ScriptCompiler::CreateCodeCacheForFunction(fn));
-    bool cached_data_produced = cached_data != nullptr;
-    if (cached_data_produced) {
-      MaybeLocal<Object> buf = Buffer::Copy(
-          env,
-          reinterpret_cast<const char*>(cached_data->data),
-          cached_data->length);
-      if (result
-              ->Set(parsing_context,
-                    env->cached_data_string(),
-                    buf.ToLocalChecked())
-              .IsNothing())
-        return;
-    }
-    if (result
-            ->Set(parsing_context,
-                  env->cached_data_produced_string(),
-                  Boolean::New(isolate, cached_data_produced))
-            .IsNothing())
-      return;
+    new_cached_data.reset(ScriptCompiler::CreateCodeCacheForFunction(fn));
+  }
+  if (StoreCodeCacheResult(env,
+                           result,
+                           options,
+                           source,
+                           produce_cached_data,
+                           std::move(new_cached_data))
+          .IsNothing()) {
+    return;
   }
 
   args.GetReturnValue().Set(result);
-}
-
-void CompiledFnEntry::WeakCallback(
-    const WeakCallbackInfo<CompiledFnEntry>& data) {
-  CompiledFnEntry* entry = data.GetParameter();
-  delete entry;
-}
-
-CompiledFnEntry::CompiledFnEntry(Environment* env,
-                                 Local<Object> object,
-                                 uint32_t id,
-                                 Local<Function> fn)
-    : BaseObject(env, object), id_(id), fn_(env->isolate(), fn) {
-  fn_.SetWeak(this, WeakCallback, v8::WeakCallbackType::kParameter);
-}
-
-CompiledFnEntry::~CompiledFnEntry() {
-  env()->id_to_function_map.erase(id_);
-  fn_.ClearWeak();
 }
 
 static void StartSigintWatchdog(const FunctionCallbackInfo<Value>& args) {
@@ -1374,15 +1393,6 @@ void Initialize(Local<Object> target,
   // Used in tests.
   SetMethodNoSideEffect(
       context, target, "watchdogHasPendingSigint", WatchdogHasPendingSigint);
-
-  {
-    Local<FunctionTemplate> tpl = FunctionTemplate::New(env->isolate());
-    tpl->SetClassName(FIXED_ONE_BYTE_STRING(env->isolate(), "CompiledFnEntry"));
-    tpl->InstanceTemplate()->SetInternalFieldCount(
-        CompiledFnEntry::kInternalFieldCount);
-
-    env->set_compiled_fn_entry_template(tpl->InstanceTemplate());
-  }
 
   Local<Object> constants = Object::New(env->isolate());
   Local<Object> measure_memory = Object::New(env->isolate());

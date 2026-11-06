@@ -93,8 +93,9 @@ void InvokeGC(v8::Isolate* isolate, ExecutionType execution_type,
               ? EmbedderStackStateScope::kImplicitThroughTask
               : EmbedderStackStateScope::kExplicitInvocation,
           execution_type == ExecutionType::kAsync
-              ? StackState::kNoHeapPointers
-              : StackState::kMayContainHeapPointers);
+              ? v8::EmbedderHeapTracer::EmbedderStackState::kNoHeapPointers
+              : v8::EmbedderHeapTracer::EmbedderStackState::
+                    kMayContainHeapPointers);
       heap->PreciseCollectAllGarbage(i::Heap::kNoGCFlags,
                                      i::GarbageCollectionReason::kTesting,
                                      kGCCallbackFlagForced);

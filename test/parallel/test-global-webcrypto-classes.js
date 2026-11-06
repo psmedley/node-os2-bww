@@ -1,4 +1,4 @@
-// Flags: --expose-internals
+// Flags: --experimental-global-webcrypto --expose-internals
 'use strict';
 
 const common = require('../common');

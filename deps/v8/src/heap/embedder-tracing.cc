@@ -11,18 +11,17 @@
 #include "src/heap/gc-tracer.h"
 #include "src/heap/marking-worklist-inl.h"
 
-namespace v8::internal {
-
-START_ALLOW_USE_DEPRECATED()
+namespace v8 {
+namespace internal {
 
 void LocalEmbedderHeapTracer::SetRemoteTracer(EmbedderHeapTracer* tracer) {
   CHECK_NULL(cpp_heap_);
-  if (remote_tracer_) remote_tracer_->v8_isolate_ = nullptr;
+  if (remote_tracer_) remote_tracer_->isolate_ = nullptr;
 
   remote_tracer_ = tracer;
   default_embedder_roots_handler_.SetTracer(tracer);
   if (remote_tracer_)
-    remote_tracer_->v8_isolate_ = reinterpret_cast<v8::Isolate*>(isolate_);
+    remote_tracer_->isolate_ = reinterpret_cast<v8::Isolate*>(isolate_);
 }
 
 void LocalEmbedderHeapTracer::SetCppHeap(CppHeap* cpp_heap) {
@@ -45,8 +44,9 @@ CppHeap::GarbageCollectionFlags ConvertTraceFlags(
 void LocalEmbedderHeapTracer::PrepareForTrace(
     EmbedderHeapTracer::TraceFlags flags) {
   if (cpp_heap_)
-    cpp_heap()->InitializeTracing(cppgc::internal::CollectionType::kMajor,
-                                  ConvertTraceFlags(flags));
+    cpp_heap()->InitializeTracing(
+        cppgc::internal::GarbageCollector::Config::CollectionType::kMajor,
+        ConvertTraceFlags(flags));
 }
 
 void LocalEmbedderHeapTracer::TracePrologue(
@@ -101,8 +101,10 @@ void LocalEmbedderHeapTracer::EnterFinalPause() {
 bool LocalEmbedderHeapTracer::Trace(double max_duration) {
   if (!InUse()) return true;
 
-  return cpp_heap_ ? cpp_heap_->AdvanceTracing(max_duration)
-                   : remote_tracer_->AdvanceTracing(max_duration);
+  if (cpp_heap_)
+    return cpp_heap()->AdvanceTracing(max_duration);
+  else
+    return remote_tracer_->AdvanceTracing(max_duration);
 }
 
 bool LocalEmbedderHeapTracer::IsRemoteTracingDone() {
@@ -161,7 +163,7 @@ void LocalEmbedderHeapTracer::ProcessingScope::AddWrapperInfoForTesting(
 }
 
 void LocalEmbedderHeapTracer::StartIncrementalMarkingIfNeeded() {
-  if (!v8_flags.global_gc_scheduling || !v8_flags.incremental_marking) return;
+  if (!FLAG_global_gc_scheduling || !FLAG_incremental_marking) return;
 
   Heap* heap = isolate_->heap();
   heap->StartIncrementalMarkingIfAllocationLimitIsReached(
@@ -171,6 +173,16 @@ void LocalEmbedderHeapTracer::StartIncrementalMarkingIfNeeded() {
     heap->FinalizeIncrementalMarkingAtomically(
         i::GarbageCollectionReason::kExternalFinalize);
   }
+}
+
+void LocalEmbedderHeapTracer::NotifyEmptyEmbedderStack() {
+  auto* overriden_stack_state = isolate_->heap()->overriden_stack_state();
+  if (overriden_stack_state &&
+      (*overriden_stack_state ==
+       cppgc::EmbedderStackState::kMayContainHeapPointers))
+    return;
+
+  isolate_->global_handles()->NotifyEmptyEmbedderStack();
 }
 
 void LocalEmbedderHeapTracer::EmbedderWriteBarrier(Heap* heap,
@@ -206,6 +218,5 @@ void DefaultEmbedderRootsHandler::ResetRoot(
   tracer_->ResetHandleInNonTracingGC(handle);
 }
 
-END_ALLOW_USE_DEPRECATED()
-
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

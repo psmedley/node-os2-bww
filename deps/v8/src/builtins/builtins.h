@@ -90,13 +90,13 @@ class Builtins {
       kFirstWideBytecodeHandler + kNumberOfWideBytecodeHandlers;
   static constexpr int kLastBytecodeHandlerPlusOne =
       kFirstExtraWideBytecodeHandler + kNumberOfWideBytecodeHandlers;
-  static_assert(kLastBytecodeHandlerPlusOne == kBuiltinCount);
+  STATIC_ASSERT(kLastBytecodeHandlerPlusOne == kBuiltinCount);
 
   static constexpr bool IsBuiltinId(Builtin builtin) {
     return builtin != Builtin::kNoBuiltinId;
   }
   static constexpr bool IsBuiltinId(int maybe_id) {
-    static_assert(static_cast<int>(Builtin::kNoBuiltinId) == -1);
+    STATIC_ASSERT(static_cast<int>(Builtin::kNoBuiltinId) == -1);
     return static_cast<uint32_t>(maybe_id) <
            static_cast<uint32_t>(kBuiltinCount);
   }
@@ -119,12 +119,23 @@ class Builtins {
   static BytecodeOffset GetContinuationBytecodeOffset(Builtin builtin);
   static Builtin GetBuiltinFromBytecodeOffset(BytecodeOffset);
 
-  static constexpr Builtin GetRecordWriteStub(SaveFPRegsMode fp_mode) {
-    switch (fp_mode) {
-      case SaveFPRegsMode::kIgnore:
-        return Builtin::kRecordWriteIgnoreFP;
-      case SaveFPRegsMode::kSave:
-        return Builtin::kRecordWriteSaveFP;
+  static constexpr Builtin GetRecordWriteStub(
+      RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode) {
+    switch (remembered_set_action) {
+      case RememberedSetAction::kEmit:
+        switch (fp_mode) {
+          case SaveFPRegsMode::kIgnore:
+            return Builtin::kRecordWriteEmitRememberedSetIgnoreFP;
+          case SaveFPRegsMode::kSave:
+            return Builtin::kRecordWriteEmitRememberedSetSaveFP;
+        }
+      case RememberedSetAction::kOmit:
+        switch (fp_mode) {
+          case SaveFPRegsMode::kIgnore:
+            return Builtin::kRecordWriteOmitRememberedSetIgnoreFP;
+          case SaveFPRegsMode::kSave:
+            return Builtin::kRecordWriteOmitRememberedSetSaveFP;
+        }
     }
   }
 
@@ -143,6 +154,7 @@ class Builtins {
   Handle<CodeT> NonPrimitiveToPrimitive(
       ToPrimitiveHint hint = ToPrimitiveHint::kDefault);
   Handle<CodeT> OrdinaryToPrimitive(OrdinaryToPrimitiveHint hint);
+  Handle<CodeT> JSConstructStubGeneric();
 
   // Used by CreateOffHeapTrampolines in isolate.cc.
   void set_code(Builtin builtin, CodeT code);
@@ -157,7 +169,7 @@ class Builtins {
 
   static int GetStackParameterCount(Builtin builtin);
 
-  V8_EXPORT_PRIVATE static const char* name(Builtin builtin);
+  static const char* name(Builtin builtin);
 
   // Support for --print-builtin-size and --print-builtin-code.
   void PrintBuiltinCode();
@@ -180,6 +192,9 @@ class Builtins {
   // by handle location. Similar to Heap::IsRootHandle.
   bool IsBuiltinHandle(Handle<HeapObject> maybe_code, Builtin* index) const;
 
+  // True, iff the given code object is a builtin with off-heap embedded code.
+  static bool IsIsolateIndependentBuiltin(const Code code);
+
   // True, iff the given builtin contains no isolate-specific code and can be
   // embedded into the binary.
   static constexpr bool kAllBuiltinsAreIsolateIndependent = true;
@@ -187,16 +202,8 @@ class Builtins {
     return kAllBuiltinsAreIsolateIndependent;
   }
   static constexpr bool IsIsolateIndependent(Builtin builtin) {
-    static_assert(kAllBuiltinsAreIsolateIndependent);
+    STATIC_ASSERT(kAllBuiltinsAreIsolateIndependent);
     return kAllBuiltinsAreIsolateIndependent;
-  }
-
-  // True, iff the given code object is a builtin with off-heap embedded code.
-  template <typename CodeOrCodeT>
-  static bool IsIsolateIndependentBuiltin(CodeOrCodeT code) {
-    Builtin builtin = code.builtin_id();
-    return Builtins::IsBuiltinId(builtin) &&
-           Builtins::IsIsolateIndependent(builtin);
   }
 
   static void InitializeIsolateDataTables(Isolate* isolate);
@@ -213,9 +220,9 @@ class Builtins {
   }
 
   V8_WARN_UNUSED_RESULT static MaybeHandle<Object> InvokeApiFunction(
-      Isolate* isolate, bool is_construct,
-      Handle<FunctionTemplateInfo> function, Handle<Object> receiver, int argc,
-      Handle<Object> args[], Handle<HeapObject> new_target);
+      Isolate* isolate, bool is_construct, Handle<HeapObject> function,
+      Handle<Object> receiver, int argc, Handle<Object> args[],
+      Handle<HeapObject> new_target);
 
   static void Generate_Adaptor(MacroAssembler* masm, Address builtin_address);
 
@@ -238,10 +245,6 @@ class Builtins {
   // Generate the RelocInfo ByteArray that would be generated for an offheap
   // trampoline.
   static Handle<ByteArray> GenerateOffHeapTrampolineRelocInfo(Isolate* isolate);
-
-  // Creates a copy of InterpreterEntryTrampolineForProfiling in the code space.
-  static Handle<Code> CreateInterpreterEntryTrampolineForProfiling(
-      Isolate* isolate);
 
   // Only builtins with JS linkage should ever need to be called via their
   // trampoline Code object. The remaining builtins have non-executable Code
@@ -293,18 +296,6 @@ class Builtins {
                                                      CallOrConstructMode mode,
                                                      Handle<CodeT> code);
 
-  enum class InterpreterEntryTrampolineMode {
-    // The version of InterpreterEntryTrampoline used by default.
-    kDefault,
-    // The position independent version of InterpreterEntryTrampoline used as
-    // a template to create copies of the builtin at runtime. The copies are
-    // used to create better profiling information for ticks in bytecode
-    // execution. See v8_flags.interpreted_frames_native_stack for details.
-    kForProfiling
-  };
-  static void Generate_InterpreterEntryTrampoline(
-      MacroAssembler* masm, InterpreterEntryTrampolineMode mode);
-
   static void Generate_InterpreterPushArgsThenCallImpl(
       MacroAssembler* masm, ConvertReceiverMode receiver_mode,
       InterpreterPushArgsMode mode);
@@ -348,7 +339,6 @@ V8_INLINE constexpr bool IsBaselineTrampolineBuiltin(Builtin builtin_id) {
   // is not a builtin.
   return builtin_id != Builtin::kNoBuiltinId &&
          (builtin_id == Builtin::kBaselineOutOfLinePrologue ||
-          builtin_id == Builtin::kBaselineOutOfLinePrologueDeopt ||
           builtin_id == Builtin::kBaselineOrInterpreterEnterAtBytecode ||
           builtin_id == Builtin::kBaselineOrInterpreterEnterAtNextBytecode);
 }

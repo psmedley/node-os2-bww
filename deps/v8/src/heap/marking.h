@@ -14,7 +14,7 @@ namespace internal {
 class MarkBit {
  public:
   using CellType = uint32_t;
-  static_assert(sizeof(CellType) == sizeof(base::Atomic32));
+  STATIC_ASSERT(sizeof(CellType) == sizeof(base::Atomic32));
 
   inline MarkBit(CellType* cell, CellType mask) : cell_(cell), mask_(mask) {}
 
@@ -127,10 +127,6 @@ class V8_EXPORT_PRIVATE Bitmap {
 
   V8_INLINE MarkBit::CellType* cells() {
     return reinterpret_cast<MarkBit::CellType*>(this);
-  }
-
-  V8_INLINE const MarkBit::CellType* cells() const {
-    return reinterpret_cast<const MarkBit::CellType*>(this);
   }
 
   V8_INLINE static Bitmap* FromAddress(Address addr) {
@@ -404,7 +400,7 @@ class Marking : public AllStatic {
 
   template <AccessMode mode = AccessMode::NON_ATOMIC>
   V8_INLINE static void MarkWhite(MarkBit markbit) {
-    static_assert(mode == AccessMode::NON_ATOMIC);
+    STATIC_ASSERT(mode == AccessMode::NON_ATOMIC);
     markbit.Clear<mode>();
     markbit.Next().Clear<mode>();
   }

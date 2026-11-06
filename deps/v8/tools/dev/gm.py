@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # Copyright 2017 the V8 project authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -39,31 +39,19 @@ BUILD_TARGETS_TEST = ["d8", "bigint_shell", "cctest", "inspector-test",
 BUILD_TARGETS_ALL = ["all"]
 
 # All arches that this script understands.
-ARCHES = [
-    "ia32", "x64", "arm", "arm64", "mips64el", "ppc", "ppc64", "riscv32",
-    "riscv64", "s390", "s390x", "android_arm", "android_arm64", "loong64",
-    "fuchsia_x64", "fuchsia_arm64"
-]
+ARCHES = ["ia32", "x64", "arm", "arm64", "mipsel", "mips64el", "ppc", "ppc64",
+          "riscv64", "s390", "s390x", "android_arm", "android_arm64", "loong64",
+          "fuchsia_x64", "fuchsia_arm64"]
 # Arches that get built/run when you don't specify any.
 DEFAULT_ARCHES = ["ia32", "x64", "arm", "arm64"]
-SANDBOX_SUPPORTED_ARCHES = ["x64", "arm64"]
 # Modes that this script understands.
-MODES = {
-    "release": "release",
-    "rel": "release",
-    "debug": "debug",
-    "dbg": "debug",
-    "optdebug": "optdebug",
-    "opt": "optdebug"
-}
+MODES = ["release", "debug", "optdebug"]
 # Modes that get built/run when you don't specify any.
 DEFAULT_MODES = ["release", "debug"]
 # Build targets that can be manually specified.
-TARGETS = [
-    "d8", "cctest", "unittests", "v8_fuzzers", "wasm_api_tests", "wee8",
-    "mkgrokdump", "generate-bytecode-expectations", "inspector-test",
-    "bigint_shell", "wami"
-]
+TARGETS = ["d8", "cctest", "unittests", "v8_fuzzers", "wasm_api_tests", "wee8",
+           "mkgrokdump", "generate-bytecode-expectations", "inspector-test",
+           "bigint_shell"]
 # Build targets that get built when you don't specify any (and specified tests
 # don't imply any other targets).
 DEFAULT_TARGETS = ["d8"]
@@ -109,11 +97,9 @@ HELP = """<arch> can be any of: %(arches)s
  - tests (build test binaries)
  - check (build test binaries, run most tests)
  - checkall (build all binaries, run more tests)
-""" % {
-    "arches": " ".join(ARCHES),
-    "modes": " ".join(MODES.keys()),
-    "targets": ", ".join(TARGETS)
-}
+""" % {"arches": " ".join(ARCHES),
+       "modes": " ".join(MODES),
+       "targets": ", ".join(TARGETS)}
 
 TESTSUITES_TARGETS = {"benchmarks": "d8",
               "bigint": "bigint_shell",
@@ -210,7 +196,7 @@ def PrintHelpAndExit():
 def PrintCompletionsAndExit():
   for a in ARCHES:
     print("%s" % a)
-    for m in set(MODES.values()):
+    for m in MODES:
       print("%s" % m)
       print("%s.%s" % (a, m))
       for t in TARGETS:
@@ -257,8 +243,7 @@ def _Write(filename, content):
     f.write(content)
 
 def _Notify(summary, body):
-  if (_Which('notify-send') is not None and
-      os.environ.get("DISPLAY") is not None):
+  if _Which('notify-send') is not None:
     _Call("notify-send '{}' '{}'".format(summary, body), silent=True)
   else:
     print("{} - {}".format(summary, body))
@@ -325,8 +310,8 @@ class Config(object):
       v8_cpu = "arm"
     elif self.arch == "android_arm64" or self.arch == "fuchsia_arm64":
       v8_cpu = "arm64"
-    elif self.arch in ("arm", "arm64", "mips64el", "ppc", "ppc64", "riscv64",
-                       "riscv32", "s390", "s390x", "loong64"):
+    elif self.arch in ("arm", "arm64", "mipsel", "mips64el", "ppc", "ppc64",
+                       "riscv64", "s390", "s390x", "loong64"):
       v8_cpu = self.arch
     else:
       return []
@@ -346,18 +331,12 @@ class Config(object):
       return ["clang_base_path = \"/usr\"", "clang_use_chrome_plugins = false"]
     return []
 
-  def GetSandboxFlag(self):
-    if self.arch in SANDBOX_SUPPORTED_ARCHES:
-      return ["v8_enable_sandbox = true"]
-    return []
-
   def GetGnArgs(self):
     # Use only substring before first '-' as the actual mode
     mode = re.match("([^-]+)", self.mode).group(1)
     template = ARGS_TEMPLATES[mode]
-    arch_specific = (
-        self.GetTargetCpu() + self.GetV8TargetCpu() + self.GetTargetOS() +
-        self.GetSpecialCompiler() + self.GetSandboxFlag())
+    arch_specific = (self.GetTargetCpu() + self.GetV8TargetCpu() +
+                     self.GetTargetOS() + self.GetSpecialCompiler())
     return template % "\n".join(arch_specific)
 
   def Build(self):
@@ -488,21 +467,16 @@ class ArgumentParser(object):
       if word in ARCHES:
         arches.append(word)
       elif word in MODES:
-        modes.append(MODES[word])
+        modes.append(word)
       elif word in TARGETS:
         targets.append(word)
       elif word in ACTIONS:
         actions.append(word)
+      elif any(map(lambda x: word.startswith(x + "-"), MODES)):
+        modes.append(word)
       else:
-        for mode in MODES.keys():
-          if word.startswith(mode + "-"):
-            prefix = word[:len(mode)]
-            suffix = word[len(mode) + 1:]
-            modes.append(MODES[prefix] + "-" + suffix)
-            break
-        else:
-          print("Didn't understand: %s" % word)
-          sys.exit(1)
+        print("Didn't understand: %s" % word)
+        sys.exit(1)
     # Process actions.
     for action in actions:
       impact = ACTIONS[action]

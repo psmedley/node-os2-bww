@@ -25,7 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --allow-natives-syntax --expose-gc --no-always-turbofan --turbofan
+// Flags: --allow-natives-syntax --expose-gc --no-always-opt --opt
 
 // Test element kind of objects.
 

@@ -7,10 +7,10 @@
 #if V8_TARGET_ARCH_LOONG64
 
 #include "src/base/cpu.h"
-#include "src/codegen/flush-instruction-cache.h"
 #include "src/codegen/loong64/assembler-loong64-inl.h"
 #include "src/codegen/machine-type.h"
 #include "src/codegen/safepoint-table.h"
+#include "src/codegen/string-constants.h"
 #include "src/deoptimizer/deoptimizer.h"
 #include "src/objects/heap-number-inl.h"
 
@@ -123,8 +123,15 @@ Operand Operand::EmbeddedNumber(double value) {
   int32_t smi;
   if (DoubleToSmiInteger(value, &smi)) return Operand(Smi::FromInt(smi));
   Operand result(0, RelocInfo::FULL_EMBEDDED_OBJECT);
-  result.is_heap_number_request_ = true;
-  result.value_.heap_number_request = HeapNumberRequest(value);
+  result.is_heap_object_request_ = true;
+  result.value_.heap_object_request = HeapObjectRequest(value);
+  return result;
+}
+
+Operand Operand::EmbeddedStringConstant(const StringConstantBase* str) {
+  Operand result(0, RelocInfo::FULL_EMBEDDED_OBJECT);
+  result.is_heap_object_request_ = true;
+  result.value_.heap_object_request = HeapObjectRequest(str);
   return result;
 }
 
@@ -134,12 +141,21 @@ MemOperand::MemOperand(Register base, int32_t offset)
 MemOperand::MemOperand(Register base, Register index)
     : base_(base), index_(index), offset_(0) {}
 
-void Assembler::AllocateAndInstallRequestedHeapNumbers(Isolate* isolate) {
-  DCHECK_IMPLIES(isolate == nullptr, heap_number_requests_.empty());
-  for (auto& request : heap_number_requests_) {
+void Assembler::AllocateAndInstallRequestedHeapObjects(Isolate* isolate) {
+  DCHECK_IMPLIES(isolate == nullptr, heap_object_requests_.empty());
+  for (auto& request : heap_object_requests_) {
     Handle<HeapObject> object;
-    object = isolate->factory()->NewHeapNumber<AllocationType::kOld>(
-        request.heap_number());
+    switch (request.kind()) {
+      case HeapObjectRequest::kHeapNumber:
+        object = isolate->factory()->NewHeapNumber<AllocationType::kOld>(
+            request.heap_number());
+        break;
+      case HeapObjectRequest::kStringConstant:
+        const StringConstantBase* str = request.string();
+        CHECK_NOT_NULL(str);
+        object = str->AllocateStringConstant(isolate);
+        break;
+    }
     Address pc = reinterpret_cast<Address>(buffer_start_) + request.offset();
     set_target_value_at(pc, reinterpret_cast<uint64_t>(object.location()));
   }
@@ -151,8 +167,7 @@ void Assembler::AllocateAndInstallRequestedHeapNumbers(Isolate* isolate) {
 Assembler::Assembler(const AssemblerOptions& options,
                      std::unique_ptr<AssemblerBuffer> buffer)
     : AssemblerBase(options, std::move(buffer)),
-      scratch_register_list_({t7, t6}),
-      scratch_fpregister_list_({f31}) {
+      scratch_register_list_({t7, t6}) {
   reloc_info_writer.Reposition(buffer_start_ + buffer_->size(), pc_);
 
   last_trampoline_pool_end_ = 0;
@@ -160,13 +175,13 @@ Assembler::Assembler(const AssemblerOptions& options,
   trampoline_pool_blocked_nesting_ = 0;
   // We leave space (16 * kTrampolineSlotsSize)
   // for BlockTrampolinePoolScope buffer.
-  next_buffer_check_ = v8_flags.force_long_branches
+  next_buffer_check_ = FLAG_force_long_branches
                            ? kMaxInt
                            : kMax16BranchOffset - kTrampolineSlotsSize * 16;
   internal_trampoline_exception_ = false;
   last_bound_pos_ = 0;
 
-  trampoline_emitted_ = v8_flags.force_long_branches;
+  trampoline_emitted_ = FLAG_force_long_branches;
   unbound_labels_count_ = 0;
   block_buffer_growth_ = false;
 }
@@ -189,7 +204,7 @@ void Assembler::GetCode(Isolate* isolate, CodeDesc* desc,
 
   DCHECK(pc_ <= reloc_info_writer.pos());  // No overlap.
 
-  AllocateAndInstallRequestedHeapNumbers(isolate);
+  AllocateAndInstallRequestedHeapObjects(isolate);
 
   // Set up code descriptor.
   // TODO(jgruber): Reconsider how these offsets and sizes are maintained up to
@@ -2154,7 +2169,8 @@ void Assembler::dd(uint32_t data, RelocInfo::Mode rmode) {
     CheckBuffer();
   }
   if (!RelocInfo::IsNoInfo(rmode)) {
-    DCHECK(RelocInfo::IsLiteralConstant(rmode));
+    DCHECK(RelocInfo::IsDataEmbeddedObject(rmode) ||
+           RelocInfo::IsLiteralConstant(rmode));
     RecordRelocInfo(rmode);
   }
   *reinterpret_cast<uint32_t*>(pc_) = data;
@@ -2166,7 +2182,8 @@ void Assembler::dq(uint64_t data, RelocInfo::Mode rmode) {
     CheckBuffer();
   }
   if (!RelocInfo::IsNoInfo(rmode)) {
-    DCHECK(RelocInfo::IsLiteralConstant(rmode));
+    DCHECK(RelocInfo::IsDataEmbeddedObject(rmode) ||
+           RelocInfo::IsLiteralConstant(rmode));
     RecordRelocInfo(rmode);
   }
   *reinterpret_cast<uint64_t*>(pc_) = data;
@@ -2336,13 +2353,10 @@ void Assembler::set_target_value_at(Address pc, uint64_t target,
 
 UseScratchRegisterScope::UseScratchRegisterScope(Assembler* assembler)
     : available_(assembler->GetScratchRegisterList()),
-      availablefp_(assembler->GetScratchFPRegisterList()),
-      old_available_(*available_),
-      old_availablefp_(*availablefp_) {}
+      old_available_(*available_) {}
 
 UseScratchRegisterScope::~UseScratchRegisterScope() {
   *available_ = old_available_;
-  *availablefp_ = old_availablefp_;
 }
 
 Register UseScratchRegisterScope::Acquire() {
@@ -2350,17 +2364,8 @@ Register UseScratchRegisterScope::Acquire() {
   return available_->PopFirst();
 }
 
-DoubleRegister UseScratchRegisterScope::AcquireFp() {
-  DCHECK_NOT_NULL(availablefp_);
-  return availablefp_->PopFirst();
-}
-
 bool UseScratchRegisterScope::hasAvailable() const {
   return !available_->is_empty();
-}
-
-bool UseScratchRegisterScope::hasAvailableFp() const {
-  return !availablefp_->is_empty();
 }
 
 }  // namespace internal

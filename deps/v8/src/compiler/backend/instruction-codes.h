@@ -13,6 +13,8 @@
 #include "src/compiler/backend/arm64/instruction-codes-arm64.h"
 #elif V8_TARGET_ARCH_IA32
 #include "src/compiler/backend/ia32/instruction-codes-ia32.h"
+#elif V8_TARGET_ARCH_MIPS
+#include "src/compiler/backend/mips/instruction-codes-mips.h"
 #elif V8_TARGET_ARCH_MIPS64
 #include "src/compiler/backend/mips64/instruction-codes-mips64.h"
 #elif V8_TARGET_ARCH_LOONG64
@@ -23,8 +25,8 @@
 #include "src/compiler/backend/ppc/instruction-codes-ppc.h"
 #elif V8_TARGET_ARCH_S390
 #include "src/compiler/backend/s390/instruction-codes-s390.h"
-#elif V8_TARGET_ARCH_RISCV32 || V8_TARGET_ARCH_RISCV64
-#include "src/compiler/backend/riscv/instruction-codes-riscv.h"
+#elif V8_TARGET_ARCH_RISCV64
+#include "src/compiler/backend/riscv64/instruction-codes-riscv64.h"
 #else
 #define TARGET_ARCH_OPCODE_LIST(V)
 #define TARGET_ADDRESSING_MODE_LIST(V)
@@ -64,53 +66,6 @@ inline RecordWriteMode WriteBarrierKindToRecordWriteMode(
   UNREACHABLE();
 }
 
-#define COMMON_ARCH_OPCODE_WITH_MEMORY_ACCESS_MODE_LIST(V) \
-  V(AtomicExchangeInt8)                                    \
-  V(AtomicExchangeUint8)                                   \
-  V(AtomicExchangeInt16)                                   \
-  V(AtomicExchangeUint16)                                  \
-  V(AtomicExchangeWord32)                                  \
-  V(AtomicCompareExchangeInt8)                             \
-  V(AtomicCompareExchangeUint8)                            \
-  V(AtomicCompareExchangeInt16)                            \
-  V(AtomicCompareExchangeUint16)                           \
-  V(AtomicCompareExchangeWord32)                           \
-  V(AtomicAddInt8)                                         \
-  V(AtomicAddUint8)                                        \
-  V(AtomicAddInt16)                                        \
-  V(AtomicAddUint16)                                       \
-  V(AtomicAddWord32)                                       \
-  V(AtomicSubInt8)                                         \
-  V(AtomicSubUint8)                                        \
-  V(AtomicSubInt16)                                        \
-  V(AtomicSubUint16)                                       \
-  V(AtomicSubWord32)                                       \
-  V(AtomicAndInt8)                                         \
-  V(AtomicAndUint8)                                        \
-  V(AtomicAndInt16)                                        \
-  V(AtomicAndUint16)                                       \
-  V(AtomicAndWord32)                                       \
-  V(AtomicOrInt8)                                          \
-  V(AtomicOrUint8)                                         \
-  V(AtomicOrInt16)                                         \
-  V(AtomicOrUint16)                                        \
-  V(AtomicOrWord32)                                        \
-  V(AtomicXorInt8)                                         \
-  V(AtomicXorUint8)                                        \
-  V(AtomicXorInt16)                                        \
-  V(AtomicXorUint16)                                       \
-  V(AtomicXorWord32)                                       \
-  V(ArchStoreWithWriteBarrier)                             \
-  V(ArchAtomicStoreWithWriteBarrier)                       \
-  V(AtomicLoadInt8)                                        \
-  V(AtomicLoadUint8)                                       \
-  V(AtomicLoadInt16)                                       \
-  V(AtomicLoadUint16)                                      \
-  V(AtomicLoadWord32)                                      \
-  V(AtomicStoreWord8)                                      \
-  V(AtomicStoreWord16)                                     \
-  V(AtomicStoreWord32)
-
 // Target-specific opcodes that specify which assembly sequence to emit.
 // Most opcodes specify a single instruction.
 #define COMMON_ARCH_OPCODE_LIST(V)                                         \
@@ -146,9 +101,54 @@ inline RecordWriteMode WriteBarrierKindToRecordWriteMode(
   V(ArchFramePointer)                                                      \
   V(ArchParentFramePointer)                                                \
   V(ArchTruncateDoubleToI)                                                 \
+  V(ArchStoreWithWriteBarrier)                                             \
+  V(ArchAtomicStoreWithWriteBarrier)                                       \
   V(ArchStackSlot)                                                         \
   V(ArchStackPointerGreaterThan)                                           \
   V(ArchStackCheckOffset)                                                  \
+  V(AtomicLoadInt8)                                                        \
+  V(AtomicLoadUint8)                                                       \
+  V(AtomicLoadInt16)                                                       \
+  V(AtomicLoadUint16)                                                      \
+  V(AtomicLoadWord32)                                                      \
+  V(AtomicStoreWord8)                                                      \
+  V(AtomicStoreWord16)                                                     \
+  V(AtomicStoreWord32)                                                     \
+  V(AtomicExchangeInt8)                                                    \
+  V(AtomicExchangeUint8)                                                   \
+  V(AtomicExchangeInt16)                                                   \
+  V(AtomicExchangeUint16)                                                  \
+  V(AtomicExchangeWord32)                                                  \
+  V(AtomicCompareExchangeInt8)                                             \
+  V(AtomicCompareExchangeUint8)                                            \
+  V(AtomicCompareExchangeInt16)                                            \
+  V(AtomicCompareExchangeUint16)                                           \
+  V(AtomicCompareExchangeWord32)                                           \
+  V(AtomicAddInt8)                                                         \
+  V(AtomicAddUint8)                                                        \
+  V(AtomicAddInt16)                                                        \
+  V(AtomicAddUint16)                                                       \
+  V(AtomicAddWord32)                                                       \
+  V(AtomicSubInt8)                                                         \
+  V(AtomicSubUint8)                                                        \
+  V(AtomicSubInt16)                                                        \
+  V(AtomicSubUint16)                                                       \
+  V(AtomicSubWord32)                                                       \
+  V(AtomicAndInt8)                                                         \
+  V(AtomicAndUint8)                                                        \
+  V(AtomicAndInt16)                                                        \
+  V(AtomicAndUint16)                                                       \
+  V(AtomicAndWord32)                                                       \
+  V(AtomicOrInt8)                                                          \
+  V(AtomicOrUint8)                                                         \
+  V(AtomicOrInt16)                                                         \
+  V(AtomicOrUint16)                                                        \
+  V(AtomicOrWord32)                                                        \
+  V(AtomicXorInt8)                                                         \
+  V(AtomicXorUint8)                                                        \
+  V(AtomicXorInt16)                                                        \
+  V(AtomicXorUint16)                                                       \
+  V(AtomicXorWord32)                                                       \
   V(Ieee754Float64Acos)                                                    \
   V(Ieee754Float64Acosh)                                                   \
   V(Ieee754Float64Asin)                                                    \
@@ -169,8 +169,7 @@ inline RecordWriteMode WriteBarrierKindToRecordWriteMode(
   V(Ieee754Float64Sin)                                                     \
   V(Ieee754Float64Sinh)                                                    \
   V(Ieee754Float64Tan)                                                     \
-  V(Ieee754Float64Tanh)                                                    \
-  COMMON_ARCH_OPCODE_WITH_MEMORY_ACCESS_MODE_LIST(V)
+  V(Ieee754Float64Tanh)
 
 #define ARCH_OPCODE_LIST(V)  \
   COMMON_ARCH_OPCODE_LIST(V) \
@@ -321,7 +320,6 @@ inline bool HasMemoryAccessMode(ArchOpcode opcode) {
 #define CASE(Name) \
   case k##Name:    \
     return true;
-    COMMON_ARCH_OPCODE_WITH_MEMORY_ACCESS_MODE_LIST(CASE)
     TARGET_ARCH_OPCODE_WITH_MEMORY_ACCESS_MODE_LIST(CASE)
 #undef CASE
     default:

@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "src/compiler/load-elimination.h"
-
 #include "src/compiler/access-builder.h"
 #include "src/compiler/js-graph.h"
 #include "src/compiler/node.h"
@@ -11,6 +10,7 @@
 #include "test/unittests/compiler/graph-reducer-unittest.h"
 #include "test/unittests/compiler/graph-unittest.h"
 #include "test/unittests/compiler/node-test-utils.h"
+#include "testing/gmock-support.h"
 
 using testing::_;
 using testing::StrictMock;

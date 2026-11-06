@@ -20,7 +20,6 @@
 namespace v8 {
 
 class Function;
-class Message;
 class Object;
 class PrimitiveArray;
 class Script;
@@ -48,6 +47,8 @@ class V8_EXPORT ScriptOrModule {
    * The options that were passed by the embedder as HostDefinedOptions to
    * the ScriptOrigin.
    */
+  V8_DEPRECATED("Use HostDefinedOptions")
+  Local<PrimitiveArray> GetHostDefinedOptions();
   Local<Data> HostDefinedOptions();
 };
 
@@ -77,13 +78,7 @@ class V8_EXPORT UnboundScript {
    * Returns zero based line number of the code_pos location in the script.
    * -1 will be returned if no information available.
    */
-  int GetLineNumber(int code_pos = 0);
-
-  /**
-   * Returns zero based column number of the code_pos location in the script.
-   * -1 will be returned if no information available.
-   */
-  int GetColumnNumber(int code_pos = 0);
+  int GetLineNumber(int code_pos);
 
   static const int kNoScriptId = 0;
 };
@@ -92,15 +87,7 @@ class V8_EXPORT UnboundScript {
  * A compiled JavaScript module, not yet tied to a Context.
  */
 class V8_EXPORT UnboundModuleScript : public Data {
- public:
-  /**
-   * Data read from magic sourceURL comments.
-   */
-  Local<Value> GetSourceURL();
-  /**
-   * Data read from magic sourceMappingURL comments.
-   */
-  Local<Value> GetSourceMappingURL();
+  // Only used as a container for code caching.
 };
 
 /**
@@ -141,10 +128,9 @@ class V8_EXPORT ModuleRequest : public Data {
    *
    * All assertions present in the module request will be supplied in this
    * list, regardless of whether they are supported by the host. Per
-   * https://tc39.es/proposal-import-assertions/#sec-hostgetsupportedimportassertions,
-   * hosts are expected to ignore assertions that they do not support (as
-   * opposed to, for example, triggering an error if an unsupported assertion is
-   * present).
+   * https://tc39.es/proposal-import-attributes/#sec-hostgetsupportedimportattributes,
+   * hosts are expected to throw for assertions that they do not support (as
+   * opposed to, for example, ignoring them).
    */
   Local<FixedArray> GetImportAssertions() const;
 
@@ -298,16 +284,6 @@ class V8_EXPORT Module : public Data {
    */
   V8_WARN_UNUSED_RESULT Maybe<bool> SetSyntheticModuleExport(
       Isolate* isolate, Local<String> export_name, Local<Value> export_value);
-
-  /**
-   * Search the modules requested directly or indirectly by the module for
-   * any top-level await that has not yet resolved. If there is any, the
-   * returned vector contains a tuple of the unresolved module and a message
-   * with the pending top-level await.
-   * An embedder may call this before exiting to improve error messages.
-   */
-  std::vector<std::tuple<Local<Module>, Local<Message>>>
-  GetStalledTopLevelAwaitMessage(Isolate* isolate);
 
   V8_INLINE static Module* Cast(Data* data);
 
@@ -512,43 +488,13 @@ class V8_EXPORT ScriptCompiler {
   /**
    * A task which the embedder must run on a background thread to
    * consume a V8 code cache. Returned by
-   * ScriptCompiler::StartConsumingCodeCache.
+   * ScriptCompiler::StarConsumingCodeCache.
    */
   class V8_EXPORT ConsumeCodeCacheTask final {
    public:
     ~ConsumeCodeCacheTask();
 
     void Run();
-
-    /**
-     * Provides the source text string and origin information to the consumption
-     * task. May be called before, during, or after Run(). This step checks
-     * whether the script matches an existing script in the Isolate's
-     * compilation cache. To check whether such a script was found, call
-     * ShouldMergeWithExistingScript.
-     *
-     * The Isolate provided must be the same one used during
-     * StartConsumingCodeCache and must be currently entered on the thread that
-     * calls this function. The source text and origin provided in this step
-     * must precisely match those used later in the ScriptCompiler::Source that
-     * will contain this ConsumeCodeCacheTask.
-     */
-    void SourceTextAvailable(Isolate* isolate, Local<String> source_text,
-                             const ScriptOrigin& origin);
-
-    /**
-     * Returns whether the embedder should call MergeWithExistingScript. This
-     * function may be called from any thread, any number of times, but its
-     * return value is only meaningful after SourceTextAvailable has completed.
-     */
-    bool ShouldMergeWithExistingScript() const;
-
-    /**
-     * Merges newly deserialized data into an existing script which was found
-     * during SourceTextAvailable. May be called only after Run() has completed.
-     * Can execute on any thread, like Run().
-     */
-    void MergeWithExistingScript();
 
    private:
     friend class ScriptCompiler;
@@ -634,8 +580,7 @@ class V8_EXPORT ScriptCompiler {
    */
   static ScriptStreamingTask* StartStreaming(
       Isolate* isolate, StreamedSource* source,
-      ScriptType type = ScriptType::kClassic,
-      CompileOptions options = kNoCompileOptions);
+      ScriptType type = ScriptType::kClassic);
 
   static ConsumeCodeCacheTask* StartConsumingCodeCache(
       Isolate* isolate, std::unique_ptr<CachedData> source);
@@ -704,7 +649,6 @@ class V8_EXPORT ScriptCompiler {
    * It is possible to specify multiple context extensions (obj in the above
    * example).
    */
-  V8_DEPRECATED("Use CompileFunction")
   static V8_WARN_UNUSED_RESULT MaybeLocal<Function> CompileFunctionInContext(
       Local<Context> context, Source* source, size_t arguments_count,
       Local<String> arguments[], size_t context_extension_count,
@@ -712,7 +656,6 @@ class V8_EXPORT ScriptCompiler {
       CompileOptions options = kNoCompileOptions,
       NoCacheReason no_cache_reason = kNoCacheNoReason,
       Local<ScriptOrModule>* script_or_module_out = nullptr);
-
   static V8_WARN_UNUSED_RESULT MaybeLocal<Function> CompileFunction(
       Local<Context> context, Source* source, size_t arguments_count = 0,
       Local<String> arguments[] = nullptr, size_t context_extension_count = 0,

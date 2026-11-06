@@ -56,8 +56,7 @@ class KeyAccumulator final {
   KeyAccumulator& operator=(const KeyAccumulator&) = delete;
 
   static MaybeHandle<FixedArray> GetKeys(
-      Isolate* isolate, Handle<JSReceiver> object, KeyCollectionMode mode,
-      PropertyFilter filter,
+      Handle<JSReceiver> object, KeyCollectionMode mode, PropertyFilter filter,
       GetKeysConversion keys_conversion = GetKeysConversion::kKeepNumbers,
       bool is_for_in = false, bool skip_indices = false);
 

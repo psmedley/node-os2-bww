@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2022 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2019-2024 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -15,6 +15,7 @@
 #include "internal/bio.h"
 #include "internal/provider.h"
 #include "crypto/ctype.h"
+#include "crypto/rand.h"
 
 struct ossl_lib_ctx_onfree_list_st {
     ossl_lib_ctx_onfree_fn *fn;
@@ -239,7 +240,7 @@ int OSSL_LIB_CTX_load_config(OSSL_LIB_CTX *ctx, const char *config_file)
 
 void OSSL_LIB_CTX_free(OSSL_LIB_CTX *ctx)
 {
-    if (ossl_lib_ctx_is_default(ctx))
+    if (ctx == NULL || ossl_lib_ctx_is_default(ctx))
         return;
 
 #ifndef FIPS_MODULE
@@ -270,6 +271,20 @@ OSSL_LIB_CTX *OSSL_LIB_CTX_set0_default(OSSL_LIB_CTX *libctx)
     }
 
     return NULL;
+}
+
+void ossl_release_default_drbg_ctx(void)
+{
+    int dynidx = default_context_int.dyn_indexes[OSSL_LIB_CTX_DRBG_INDEX];
+
+    /* early release of the DRBG in global default libctx, no locking */
+    if (dynidx != -1) {
+        void *data;
+
+        data = CRYPTO_get_ex_data(&default_context_int.data, dynidx);
+        ossl_rand_ctx_free(data);
+        CRYPTO_set_ex_data(&default_context_int.data, dynidx, NULL);
+    }
 }
 #endif
 

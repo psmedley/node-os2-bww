@@ -3,10 +3,12 @@
 // found in the LICENSE file.
 
 #include "src/compiler/simplified-operator-reducer.h"
-
 #include "src/codegen/tick-counter.h"
+#include "src/compiler/access-builder.h"
 #include "src/compiler/js-graph.h"
+#include "src/compiler/node-properties.h"
 #include "src/compiler/simplified-operator.h"
+#include "src/compiler/types.h"
 #include "src/numbers/conversions-inl.h"
 #include "test/unittests/compiler/graph-unittest.h"
 #include "test/unittests/compiler/node-test-utils.h"
@@ -94,8 +96,8 @@ const int32_t kInt32Values[] = {
 
 const double kNaNs[] = {-std::numeric_limits<double>::quiet_NaN(),
                         std::numeric_limits<double>::quiet_NaN(),
-                        base::bit_cast<double>(uint64_t{0x7FFFFFFFFFFFFFFF}),
-                        base::bit_cast<double>(uint64_t{0xFFFFFFFFFFFFFFFF})};
+                        bit_cast<double>(uint64_t{0x7FFFFFFFFFFFFFFF}),
+                        bit_cast<double>(uint64_t{0xFFFFFFFFFFFFFFFF})};
 
 const CheckForMinusZeroMode kCheckForMinusZeroModes[] = {
     CheckForMinusZeroMode::kDontCheckForMinusZero,

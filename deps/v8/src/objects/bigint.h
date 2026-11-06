@@ -26,28 +26,10 @@ void MutableBigInt_AbsoluteAddAndCanonicalize(Address result_addr,
 int32_t MutableBigInt_AbsoluteCompare(Address x_addr, Address y_addr);
 void MutableBigInt_AbsoluteSubAndCanonicalize(Address result_addr,
                                               Address x_addr, Address y_addr);
-int32_t MutableBigInt_AbsoluteMulAndCanonicalize(Address result_addr,
-                                                 Address x_addr,
-                                                 Address y_addr);
-int32_t MutableBigInt_AbsoluteDivAndCanonicalize(Address result_addr,
-                                                 Address x_addr,
-                                                 Address y_addr);
-void MutableBigInt_BitwiseAndPosPosAndCanonicalize(Address result_addr,
-                                                   Address x_addr,
-                                                   Address y_addr);
-void MutableBigInt_BitwiseAndNegNegAndCanonicalize(Address result_addr,
-                                                   Address x_addr,
-                                                   Address y_addr);
-void MutableBigInt_BitwiseAndPosNegAndCanonicalize(Address result_addr,
-                                                   Address x_addr,
-                                                   Address y_addr);
 
 class BigInt;
 class ValueDeserializer;
 class ValueSerializer;
-class WebSnapshotSerializerDeserializer;
-class WebSnapshotSerializer;
-class WebSnapshotDeserializer;
 
 #include "torque-generated/src/objects/bigint-tq.inc"
 
@@ -77,10 +59,10 @@ class BigIntBase : public PrimitiveHeapObject {
   // Sign and length are stored in the same bitfield.  Since the GC needs to be
   // able to read the length concurrently, the getters and setters are atomic.
   static const int kLengthFieldBits = 30;
-  static_assert(kMaxLength <= ((1 << kLengthFieldBits) - 1));
+  STATIC_ASSERT(kMaxLength <= ((1 << kLengthFieldBits) - 1));
   using SignBits = base::BitField<bool, 0, 1>;
   using LengthBits = SignBits::Next<int, kLengthFieldBits>;
-  static_assert(LengthBits::kLastUsedBit < 32);
+  STATIC_ASSERT(LengthBits::kLastUsedBit < 32);
 
   // Layout description.
 #define BIGINT_FIELDS(V)                                                  \
@@ -108,7 +90,7 @@ class BigIntBase : public PrimitiveHeapObject {
   using digit_t = uintptr_t;
   static const int kDigitSize = sizeof(digit_t);
   // kMaxLength definition assumes this:
-  static_assert(kDigitSize == kSystemPointerSize);
+  STATIC_ASSERT(kDigitSize == kSystemPointerSize);
 
   static const int kDigitBits = kDigitSize * kBitsPerByte;
   static const int kHalfDigitBits = kDigitBits / 2;
@@ -145,7 +127,7 @@ class FreshlyAllocatedBigInt : public BigIntBase {
  public:
   inline static FreshlyAllocatedBigInt cast(Object object);
   inline static FreshlyAllocatedBigInt unchecked_cast(Object o) {
-    return base::bit_cast<FreshlyAllocatedBigInt>(o);
+    return bit_cast<FreshlyAllocatedBigInt>(o);
   }
 
   // Clear uninitialized padding space.
@@ -260,8 +242,7 @@ class BigInt : public BigIntBase {
       Isolate* isolate, Handle<Object> number);
 
   // ECMAScript's ToBigInt (throws for Number input)
-  V8_EXPORT_PRIVATE static MaybeHandle<BigInt> FromObject(Isolate* isolate,
-                                                          Handle<Object> obj);
+  static MaybeHandle<BigInt> FromObject(Isolate* isolate, Handle<Object> obj);
 
   class BodyDescriptor;
 
@@ -270,9 +251,6 @@ class BigInt : public BigIntBase {
   friend class StringToBigIntHelper;
   friend class ValueDeserializer;
   friend class ValueSerializer;
-  friend class WebSnapshotSerializerDeserializer;
-  friend class WebSnapshotSerializer;
-  friend class WebSnapshotDeserializer;
 
   // Special functions for StringToBigIntHelper:
   template <typename IsolateT>

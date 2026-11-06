@@ -4,15 +4,18 @@
 
 #include "src/compiler/js-create-lowering.h"
 
+#include "src/codegen/code-factory.h"
 #include "src/compiler/access-builder.h"
 #include "src/compiler/allocation-builder-inl.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/compilation-dependencies.h"
 #include "src/compiler/js-graph.h"
 #include "src/compiler/js-operator.h"
+#include "src/compiler/linkage.h"
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/node-properties.h"
 #include "src/compiler/node.h"
+#include "src/compiler/operator-properties.h"
 #include "src/compiler/simplified-operator.h"
 #include "src/compiler/state-values-utils.h"
 #include "src/execution/protectors.h"
@@ -24,6 +27,7 @@
 #include "src/objects/js-promise.h"
 #include "src/objects/js-regexp-inl.h"
 #include "src/objects/objects-inl.h"
+#include "src/objects/template-objects.h"
 
 namespace v8 {
 namespace internal {
@@ -35,7 +39,7 @@ namespace {
 FrameState GetArgumentsFrameState(FrameState frame_state) {
   FrameState outer_state{NodeProperties::GetFrameStateInput(frame_state)};
   return outer_state.frame_state_info().type() ==
-                 FrameStateType::kInlinedExtraArguments
+                 FrameStateType::kArgumentsAdaptor
              ? outer_state
              : frame_state;
 }
@@ -176,7 +180,7 @@ Reduction JSCreateLowering::ReduceJSCreateArguments(Node* node) {
                 : native_context().sloppy_arguments_map());
         // Actually allocate and initialize the arguments object.
         AllocationBuilder a(jsgraph(), effect, control);
-        static_assert(JSSloppyArgumentsObject::kSize == 5 * kTaggedSize);
+        STATIC_ASSERT(JSSloppyArgumentsObject::kSize == 5 * kTaggedSize);
         a.Allocate(JSSloppyArgumentsObject::kSize);
         a.Store(AccessBuilder::ForMap(), arguments_map);
         a.Store(AccessBuilder::ForJSObjectPropertiesOrHashKnownPointer(),
@@ -203,7 +207,7 @@ Reduction JSCreateLowering::ReduceJSCreateArguments(Node* node) {
             jsgraph()->Constant(native_context().strict_arguments_map());
         // Actually allocate and initialize the arguments object.
         AllocationBuilder a(jsgraph(), effect, control);
-        static_assert(JSStrictArgumentsObject::kSize == 4 * kTaggedSize);
+        STATIC_ASSERT(JSStrictArgumentsObject::kSize == 4 * kTaggedSize);
         a.Allocate(JSStrictArgumentsObject::kSize);
         a.Store(AccessBuilder::ForMap(), arguments_map);
         a.Store(AccessBuilder::ForJSObjectPropertiesOrHashKnownPointer(),
@@ -231,7 +235,7 @@ Reduction JSCreateLowering::ReduceJSCreateArguments(Node* node) {
             native_context().js_array_packed_elements_map());
         // Actually allocate and initialize the jsarray.
         AllocationBuilder a(jsgraph(), effect, control);
-        static_assert(JSArray::kHeaderSize == 4 * kTaggedSize);
+        STATIC_ASSERT(JSArray::kHeaderSize == 4 * kTaggedSize);
         a.Allocate(JSArray::kHeaderSize);
         a.Store(AccessBuilder::ForMap(), jsarray_map);
         a.Store(AccessBuilder::ForJSObjectPropertiesOrHashKnownPointer(),
@@ -279,7 +283,7 @@ Reduction JSCreateLowering::ReduceJSCreateArguments(Node* node) {
                                 : native_context().sloppy_arguments_map());
       // Actually allocate and initialize the arguments object.
       AllocationBuilder a(jsgraph(), effect, control);
-      static_assert(JSSloppyArgumentsObject::kSize == 5 * kTaggedSize);
+      STATIC_ASSERT(JSSloppyArgumentsObject::kSize == 5 * kTaggedSize);
       a.Allocate(JSSloppyArgumentsObject::kSize);
       a.Store(AccessBuilder::ForMap(), arguments_map);
       a.Store(AccessBuilder::ForJSObjectPropertiesOrHashKnownPointer(),
@@ -316,7 +320,7 @@ Reduction JSCreateLowering::ReduceJSCreateArguments(Node* node) {
           jsgraph()->Constant(native_context().strict_arguments_map());
       // Actually allocate and initialize the arguments object.
       AllocationBuilder a(jsgraph(), effect, control);
-      static_assert(JSStrictArgumentsObject::kSize == 4 * kTaggedSize);
+      STATIC_ASSERT(JSStrictArgumentsObject::kSize == 4 * kTaggedSize);
       a.Allocate(JSStrictArgumentsObject::kSize);
       a.Store(AccessBuilder::ForMap(), arguments_map);
       a.Store(AccessBuilder::ForJSObjectPropertiesOrHashKnownPointer(),
@@ -358,8 +362,8 @@ Reduction JSCreateLowering::ReduceJSCreateArguments(Node* node) {
       // -1 to minus receiver
       int argument_count = args_state_info.parameter_count() - 1;
       int length = std::max(0, argument_count - start_index);
-      static_assert(JSArray::kHeaderSize == 4 * kTaggedSize);
-      a.Allocate(ALIGN_TO_ALLOCATION_ALIGNMENT(JSArray::kHeaderSize));
+      STATIC_ASSERT(JSArray::kHeaderSize == 4 * kTaggedSize);
+      a.Allocate(JSArray::kHeaderSize);
       a.Store(AccessBuilder::ForMap(), jsarray_map);
       a.Store(AccessBuilder::ForJSObjectPropertiesOrHashKnownPointer(),
               jsgraph()->EmptyFixedArrayConstant());
@@ -955,7 +959,7 @@ Reduction JSCreateLowering::ReduceJSCreateClosure(Node* node) {
   AllocationType allocation = AllocationType::kYoung;
 
   // Emit code to allocate the JSFunction instance.
-  static_assert(JSFunction::kSizeWithoutPrototype == 7 * kTaggedSize);
+  STATIC_ASSERT(JSFunction::kSizeWithoutPrototype == 7 * kTaggedSize);
   AllocationBuilder a(jsgraph(), effect, control);
   a.Allocate(function_map.instance_size(), allocation,
              Type::CallableFunction());
@@ -968,11 +972,11 @@ Reduction JSCreateLowering::ReduceJSCreateClosure(Node* node) {
   a.Store(AccessBuilder::ForJSFunctionContext(), context);
   a.Store(AccessBuilder::ForJSFunctionFeedbackCell(), feedback_cell);
   a.Store(AccessBuilder::ForJSFunctionCode(), code);
-  static_assert(JSFunction::kSizeWithoutPrototype == 7 * kTaggedSize);
+  STATIC_ASSERT(JSFunction::kSizeWithoutPrototype == 7 * kTaggedSize);
   if (function_map.has_prototype_slot()) {
     a.Store(AccessBuilder::ForJSFunctionPrototypeOrInitialMap(),
             jsgraph()->TheHoleConstant());
-    static_assert(JSFunction::kSizeWithPrototype == 8 * kTaggedSize);
+    STATIC_ASSERT(JSFunction::kSizeWithPrototype == 8 * kTaggedSize);
   }
   for (int i = 0; i < function_map.GetInObjectProperties(); i++) {
     a.Store(AccessBuilder::ForJSObjectInObjectProperty(function_map, i),
@@ -1002,7 +1006,7 @@ Reduction JSCreateLowering::ReduceJSCreateIterResultObject(Node* node) {
           jsgraph()->EmptyFixedArrayConstant());
   a.Store(AccessBuilder::ForJSIteratorResultValue(), value);
   a.Store(AccessBuilder::ForJSIteratorResultDone(), done);
-  static_assert(JSIteratorResult::kSize == 5 * kTaggedSize);
+  STATIC_ASSERT(JSIteratorResult::kSize == 5 * kTaggedSize);
   a.FinishAndChange(node);
   return Changed(node);
 }
@@ -1025,7 +1029,7 @@ Reduction JSCreateLowering::ReduceJSCreateStringIterator(Node* node) {
           jsgraph()->EmptyFixedArrayConstant());
   a.Store(AccessBuilder::ForJSStringIteratorString(), string);
   a.Store(AccessBuilder::ForJSStringIteratorIndex(), jsgraph()->SmiConstant(0));
-  static_assert(JSIteratorResult::kSize == 5 * kTaggedSize);
+  STATIC_ASSERT(JSIteratorResult::kSize == 5 * kTaggedSize);
   a.FinishAndChange(node);
   return Changed(node);
 }
@@ -1049,13 +1053,13 @@ Reduction JSCreateLowering::ReduceJSCreateKeyValueArray(Node* node) {
   Node* elements = aa.Finish();
 
   AllocationBuilder a(jsgraph(), elements, graph()->start());
-  a.Allocate(ALIGN_TO_ALLOCATION_ALIGNMENT(JSArray::kHeaderSize));
+  a.Allocate(JSArray::kHeaderSize);
   a.Store(AccessBuilder::ForMap(), array_map);
   a.Store(AccessBuilder::ForJSObjectPropertiesOrHashKnownPointer(),
           jsgraph()->EmptyFixedArrayConstant());
   a.Store(AccessBuilder::ForJSObjectElements(), elements);
   a.Store(AccessBuilder::ForJSArrayLength(PACKED_ELEMENTS), length);
-  static_assert(JSArray::kHeaderSize == 4 * kTaggedSize);
+  STATIC_ASSERT(JSArray::kHeaderSize == 4 * kTaggedSize);
   a.FinishAndChange(node);
   return Changed(node);
 }
@@ -1076,10 +1080,10 @@ Reduction JSCreateLowering::ReduceJSCreatePromise(Node* node) {
           jsgraph()->EmptyFixedArrayConstant());
   a.Store(AccessBuilder::ForJSObjectOffset(JSPromise::kReactionsOrResultOffset),
           jsgraph()->ZeroConstant());
-  static_assert(v8::Promise::kPending == 0);
+  STATIC_ASSERT(v8::Promise::kPending == 0);
   a.Store(AccessBuilder::ForJSObjectOffset(JSPromise::kFlagsOffset),
           jsgraph()->ZeroConstant());
-  static_assert(JSPromise::kHeaderSize == 5 * kTaggedSize);
+  STATIC_ASSERT(JSPromise::kHeaderSize == 5 * kTaggedSize);
   for (int offset = JSPromise::kHeaderSize;
        offset < JSPromise::kSizeWithEmbedderFields; offset += kTaggedSize) {
     a.Store(AccessBuilder::ForJSObjectOffset(offset),
@@ -1219,7 +1223,7 @@ Reduction JSCreateLowering::ReduceJSCreateFunctionContext(Node* node) {
     Node* control = NodeProperties::GetControlInput(node);
     Node* context = NodeProperties::GetContextInput(node);
     AllocationBuilder a(jsgraph(), effect, control);
-    static_assert(Context::MIN_CONTEXT_SLOTS == 2);  // Ensure fully covered.
+    STATIC_ASSERT(Context::MIN_CONTEXT_SLOTS == 2);  // Ensure fully covered.
     int context_length = slot_count + Context::MIN_CONTEXT_SLOTS;
     switch (scope_type) {
       case EVAL_SCOPE:
@@ -1255,7 +1259,7 @@ Reduction JSCreateLowering::ReduceJSCreateWithContext(Node* node) {
   Node* context = NodeProperties::GetContextInput(node);
 
   AllocationBuilder a(jsgraph(), effect, control);
-  static_assert(Context::MIN_CONTEXT_EXTENDED_SLOTS ==
+  STATIC_ASSERT(Context::MIN_CONTEXT_EXTENDED_SLOTS ==
                 3);  // Ensure fully covered.
   a.AllocateContext(Context::MIN_CONTEXT_EXTENDED_SLOTS,
                     native_context().with_context_map());
@@ -1276,7 +1280,7 @@ Reduction JSCreateLowering::ReduceJSCreateCatchContext(Node* node) {
   Node* context = NodeProperties::GetContextInput(node);
 
   AllocationBuilder a(jsgraph(), effect, control);
-  static_assert(Context::MIN_CONTEXT_SLOTS == 2);  // Ensure fully covered.
+  STATIC_ASSERT(Context::MIN_CONTEXT_SLOTS == 2);  // Ensure fully covered.
   a.AllocateContext(Context::MIN_CONTEXT_SLOTS + 1,
                     native_context().catch_context_map());
   a.Store(AccessBuilder::ForContextSlot(Context::SCOPE_INFO_INDEX), scope_info);
@@ -1301,7 +1305,7 @@ Reduction JSCreateLowering::ReduceJSCreateBlockContext(Node* node) {
     Node* context = NodeProperties::GetContextInput(node);
 
     AllocationBuilder a(jsgraph(), effect, control);
-    static_assert(Context::MIN_CONTEXT_SLOTS == 2);  // Ensure fully covered.
+    STATIC_ASSERT(Context::MIN_CONTEXT_SLOTS == 2);  // Ensure fully covered.
     a.AllocateContext(context_length, native_context().block_context_map());
     a.Store(AccessBuilder::ForContextSlot(Context::SCOPE_INFO_INDEX),
             scope_info);
@@ -1383,7 +1387,7 @@ Reduction JSCreateLowering::ReduceJSCreateObject(Node* node) {
             jsgraph()->SmiConstant(PropertyArray::kNoHashSentinel));
     // Initialize the Properties fields.
     Node* undefined = jsgraph()->UndefinedConstant();
-    static_assert(NameDictionary::kElementsStartIndex ==
+    STATIC_ASSERT(NameDictionary::kElementsStartIndex ==
                   NameDictionary::kObjectHashIndex + 1);
     for (int index = NameDictionary::kElementsStartIndex; index < length;
          index++) {
@@ -1729,7 +1733,6 @@ base::Optional<Node*> JSCreateLowering::TryAllocateFastLiteral(
                           Type::Any(),
                           MachineType::AnyTagged(),
                           kFullWriteBarrier,
-                          "TryAllocateFastLiteral",
                           const_field_info};
 
     // Note: the use of RawInobjectPropertyAt (vs. the higher-level
@@ -1912,12 +1915,12 @@ Node* JSCreateLowering::AllocateLiteralRegExp(
       native_context().regexp_function().initial_map(dependencies());
 
   // Sanity check that JSRegExp object layout hasn't changed.
-  static_assert(JSRegExp::kDataOffset == JSObject::kHeaderSize);
-  static_assert(JSRegExp::kSourceOffset == JSRegExp::kDataOffset + kTaggedSize);
-  static_assert(JSRegExp::kFlagsOffset ==
+  STATIC_ASSERT(JSRegExp::kDataOffset == JSObject::kHeaderSize);
+  STATIC_ASSERT(JSRegExp::kSourceOffset == JSRegExp::kDataOffset + kTaggedSize);
+  STATIC_ASSERT(JSRegExp::kFlagsOffset ==
                 JSRegExp::kSourceOffset + kTaggedSize);
-  static_assert(JSRegExp::kHeaderSize == JSRegExp::kFlagsOffset + kTaggedSize);
-  static_assert(JSRegExp::kLastIndexOffset == JSRegExp::kHeaderSize);
+  STATIC_ASSERT(JSRegExp::kHeaderSize == JSRegExp::kFlagsOffset + kTaggedSize);
+  STATIC_ASSERT(JSRegExp::kLastIndexOffset == JSRegExp::kHeaderSize);
   DCHECK_EQ(JSRegExp::Size(), JSRegExp::kLastIndexOffset + kTaggedSize);
 
   AllocationBuilder builder(jsgraph(), effect, control);

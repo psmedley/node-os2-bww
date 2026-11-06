@@ -11,6 +11,7 @@
 #include <cmath>
 
 #include "src/ast/ast-value-factory.h"
+#include "src/base/platform/wrappers.h"
 #include "src/base/strings.h"
 #include "src/numbers/conversions-inl.h"
 #include "src/objects/bigint.h"
@@ -937,7 +938,7 @@ Token::Value Scanner::ScanIdentifierOrKeywordInnerSlow(bool escaped,
 
     if (!escaped) return token;
 
-    static_assert(Token::LET + 1 == Token::STATIC);
+    STATIC_ASSERT(Token::LET + 1 == Token::STATIC);
     if (base::IsInRange(token, Token::LET, Token::STATIC)) {
       return Token::ESCAPED_STRICT_RESERVED_WORD;
     }

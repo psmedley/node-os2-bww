@@ -96,6 +96,9 @@ struct sockaddr_in6 {
 #include "v8-platform.h"  // NOLINT(build/include_order)
 #include "node_version.h"  // NODE_MODULE_VERSION
 
+#define NAPI_EXPERIMENTAL
+#include "node_api.h"
+
 #include <functional>
 #include <memory>
 #include <ostream>
@@ -141,8 +144,6 @@ struct sockaddr_in6 {
 
 // Forward-declare libuv loop
 struct uv_loop_s;
-
-struct napi_module;
 
 // Forward-declare these functions now to stop MSVS from becoming
 // terminally confused when it's done in node_internals.h
@@ -295,6 +296,15 @@ enum Flags : uint64_t {
 // TODO(addaleax): Make this the canonical name, as it is more descriptive.
 namespace ProcessInitializationFlags = ProcessFlags;
 
+namespace StopFlags {
+enum Flags : uint32_t {
+  kNoFlags = 0,
+  // Do not explicitly terminate the Isolate
+  // when exiting the Environment.
+  kDoNotTerminateIsolate = 1 << 0,
+};
+}  // namespace StopFlags
+
 class NODE_EXTERN InitializationResult {
  public:
   virtual ~InitializationResult();
@@ -331,11 +341,8 @@ NODE_EXTERN int Start(int argc, char* argv[]);
 // Tear down Node.js while it is running (there are active handles
 // in the loop and / or actively executing JavaScript code).
 NODE_EXTERN int Stop(Environment* env);
+NODE_EXTERN int Stop(Environment* env, StopFlags::Flags flags);
 
-// Set up per-process state needed to run Node.js. This will consume arguments
-// from argv, fill exec_argv, and possibly add errors resulting from parsing
-// the arguments to `errors`. The return value is a suggested exit code for the
-// program; If it is 0, then initializing Node.js succeeded.
 // This runs a subset of the initialization performed by
 // InitializeOncePerProcess(), which supersedes this function.
 // The subset is roughly equivalent to the one given by
@@ -345,8 +352,12 @@ NODE_DEPRECATED("Use InitializeOncePerProcess() instead",
                     std::vector<std::string>* argv,
                     std::vector<std::string>* exec_argv,
                     std::vector<std::string>* errors,
-                    ProcessInitializationFlags::Flags flags =
-                        ProcessInitializationFlags::kNoFlags));
+                    ProcessInitializationFlags::Flags flags));
+NODE_DEPRECATED("Use InitializeOncePerProcess() instead",
+                NODE_EXTERN int InitializeNodeWithArgs(
+                    std::vector<std::string>* argv,
+                    std::vector<std::string>* exec_argv,
+                    std::vector<std::string>* errors));
 
 // Set up per-process state needed to run Node.js. This will consume arguments
 // from args, and return information about the initialization success,
@@ -474,7 +485,8 @@ enum IsolateSettingsFlags {
   MESSAGE_LISTENER_WITH_ERROR_LEVEL = 1 << 0,
   DETAILED_SOURCE_POSITIONS_FOR_PROFILING = 1 << 1,
   SHOULD_NOT_SET_PROMISE_REJECTION_CALLBACK = 1 << 2,
-  SHOULD_NOT_SET_PREPARE_STACK_TRACE_CALLBACK = 1 << 3
+  SHOULD_NOT_SET_PREPARE_STACK_TRACE_CALLBACK = 1 << 3,
+  ALLOW_MODIFY_CODE_GENERATION_FROM_STRINGS_CALLBACK = 1 << 4,
 };
 
 struct IsolateSettings {
@@ -492,6 +504,8 @@ struct IsolateSettings {
   v8::PromiseRejectCallback promise_reject_callback = nullptr;
   v8::AllowWasmCodeGenerationCallback
       allow_wasm_code_generation_callback = nullptr;
+  v8::ModifyCodeGenerationFromStringsCallback2
+      modify_code_generation_from_strings_callback = nullptr;
 };
 
 // Overriding IsolateSettings may produce unexpected behavior
@@ -613,6 +627,12 @@ NODE_EXTERN std::unique_ptr<InspectorParentHandle> GetInspectorParentHandle(
     ThreadId child_thread_id,
     const char* child_url);
 
+NODE_EXTERN std::unique_ptr<InspectorParentHandle> GetInspectorParentHandle(
+    Environment* parent_env,
+    ThreadId child_thread_id,
+    const char* child_url,
+    const char* name);
+
 struct StartExecutionCallbackInfo {
   v8::Local<v8::Object> process_object;
   v8::Local<v8::Function> native_require;
@@ -646,7 +666,8 @@ NODE_EXTERN Environment* GetCurrentEnvironment(v8::Local<v8::Context> context);
 NODE_EXTERN IsolateData* GetEnvironmentIsolateData(Environment* env);
 NODE_EXTERN ArrayBufferAllocator* GetArrayBufferAllocator(IsolateData* data);
 
-NODE_EXTERN void OnFatalError(const char* location, const char* message);
+[[noreturn]] NODE_EXTERN void OnFatalError(const char* location,
+                                           const char* message);
 NODE_EXTERN void PromiseRejectCallback(v8::PromiseRejectMessage message);
 NODE_EXTERN bool AllowWasmCodeGenerationCallback(v8::Local<v8::Context> context,
                                             v8::Local<v8::String>);
@@ -1098,6 +1119,11 @@ NODE_EXTERN void AddLinkedBinding(Environment* env,
                                   const char* name,
                                   addon_context_register_func fn,
                                   void* priv);
+NODE_EXTERN void AddLinkedBinding(
+    Environment* env,
+    const char* name,
+    napi_addon_register_func fn,
+    int32_t module_api_version = NODE_API_DEFAULT_MODULE_API_VERSION);
 
 /* Registers a callback with the passed-in Environment instance. The callback
  * is called after the event loop exits, but before the VM is disposed.

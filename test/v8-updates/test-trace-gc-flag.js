@@ -24,7 +24,7 @@ const fixtures = require('../common/fixtures');
     scavengeRegex,
     scavengeRegex,
     scavengeRegex,
-    /\bMark-Compact\b/,
+    /\bMark-sweep\b/,
   ];
   lines.forEach((line, index) => {
     assert.match(line, expectedOutput[index]);

@@ -9,4 +9,13 @@ const realm = Realm.createAllowCrossRealmAccess();
 const detached = Realm.global(realm);
 Realm.detachGlobal(realm);
 
-checkNoAccess(detached, /no access/);
+assertThrows(() => new B(detached), Error, /no access/);
+assertThrows(() => new C(detached), Error, /no access/);
+assertThrows(() => new D(detached), Error, /no access/);
+assertThrows(() => new E(detached), Error, /no access/);
+assertThrows(() => B.setField(detached), Error, /no access/);
+assertThrows(() => C.setField(detached), Error, /no access/);
+assertThrows(() => D.setAccessor(detached), Error, /no access/);
+assertThrows(() => E.setMethod(detached), Error, /no access/);
+assertThrows(() => D.getAccessor(detached), Error, /no access/);
+assertThrows(() => E.getMethod(detached), Error, /no access/);

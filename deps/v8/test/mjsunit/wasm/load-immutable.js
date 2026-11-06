@@ -26,7 +26,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
 
       // length = array.length
       kExprLocalGet, 0,
-      kGCPrefix, kExprArrayLen,
+      kGCPrefix, kExprArrayLen, array_index,
       kExprLocalSet, 1,
 
       // while (true) {
@@ -77,6 +77,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
 
 (function ImmutableLoadThroughEffect() {
   var builder = new WasmModuleBuilder();
+  builder.setNominal();
   var struct = builder.addStruct([
     makeField(kWasmI32, false), makeField(kWasmI32, true)]);
 
@@ -120,14 +121,14 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   builder.addFunction("main", makeSig([wasmRefType(kWasmFuncRef)], [kWasmI32]))
     .addBody([
       // Type check the function
-      kExprLocalGet, 0, kGCPrefix, kExprRefCast, sig,
+      kExprLocalGet, 0, kGCPrefix, kExprRttCanon, sig, kGCPrefix, kExprRefCast,
       kExprDrop,
       // Introduce unknown effect
       kExprCallFunction, effect,
       // TF should be able to eliminate the second type check, and return the
       // constant 1.
-      kExprLocalGet, 0,
-      kGCPrefix, kExprRefTestDeprecated, sig])
+      kExprLocalGet, 0, kGCPrefix, kExprRttCanon, sig,
+      kGCPrefix, kExprRefTest])
     .exportFunc();
 
   var instance = builder.instantiate({m : { f: function () {} }});

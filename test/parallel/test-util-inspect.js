@@ -1172,7 +1172,6 @@ if (typeof Symbol !== 'undefined') {
 {
   assert.strictEqual(util.inspect(new Set()), 'Set(0) {}');
   assert.strictEqual(util.inspect(new Set([1, 2, 3])), 'Set(3) { 1, 2, 3 }');
-  assert.strictEqual(util.inspect(new Set([1, 2, 3]), { maxArrayLength: 1 }), 'Set(3) { 1, ... 2 more items }');
   const set = new Set(['foo']);
   set.bar = 42;
   assert.strictEqual(
@@ -1193,8 +1192,6 @@ if (typeof Symbol !== 'undefined') {
   assert.strictEqual(util.inspect(new Map()), 'Map(0) {}');
   assert.strictEqual(util.inspect(new Map([[1, 'a'], [2, 'b'], [3, 'c']])),
                      "Map(3) { 1 => 'a', 2 => 'b', 3 => 'c' }");
-  assert.strictEqual(util.inspect(new Map([[1, 'a'], [2, 'b'], [3, 'c']]), { maxArrayLength: 1 }),
-                     "Map(3) { 1 => 'a', ... 2 more items }");
   const map = new Map([['foo', null]]);
   map.bar = 42;
   assert.strictEqual(util.inspect(map, true),
@@ -2832,7 +2829,7 @@ assert.strictEqual(
     '    at Function.Module._load (node:internal/modules/cjs/loader:621:3)',
     // This file is not an actual Node.js core file.
     '    at Module.require [as weird/name] (node:internal/aaaaa/loader:735:19)',
-    '    at require (node:internal/modules/cjs/helpers:14:16)',
+    '    at require (node:internal/modules/helpers:14:16)',
     '    at Array.forEach (<anonymous>)',
     `    at ${process.cwd()}/test/parallel/test-util-inspect.js:2760:12`,
     `    at Object.<anonymous> (${process.cwd()}/node_modules/hyper_module/folder/file.js:2753:10)`,

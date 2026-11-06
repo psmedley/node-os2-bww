@@ -253,8 +253,7 @@ class ScopeInfo : public TorqueGeneratedScopeInfo<ScopeInfo, HeapObject> {
   bool IsReplModeScope() const;
 
 #ifdef DEBUG
-  bool Equals(ScopeInfo other,
-              bool ignore_position_and_module_info = false) const;
+  bool Equals(ScopeInfo other) const;
 #endif
 
   template <typename IsolateT>
@@ -294,8 +293,8 @@ class ScopeInfo : public TorqueGeneratedScopeInfo<ScopeInfo, HeapObject> {
         kVariablePartIndex
   };
 
-  static_assert(LanguageModeSize == 1 << LanguageModeBit::kSize);
-  static_assert(FunctionKind::kLastFunctionKind <= FunctionKindBits::kMax);
+  STATIC_ASSERT(LanguageModeSize == 1 << LanguageModeBit::kSize);
+  STATIC_ASSERT(FunctionKind::kLastFunctionKind <= FunctionKindBits::kMax);
 
   bool IsEmpty() const;
 
@@ -304,9 +303,6 @@ class ScopeInfo : public TorqueGeneratedScopeInfo<ScopeInfo, HeapObject> {
 
   // Gives access to raw memory which stores the ScopeInfo's data.
   inline ObjectSlot data_start();
-
-  // Hash based on position info and flags. Falls back to flags + local count.
-  V8_EXPORT_PRIVATE uint32_t Hash();
 
  private:
   friend class WebSnapshotDeserializer;

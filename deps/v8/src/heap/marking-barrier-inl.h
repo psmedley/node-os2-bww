@@ -28,33 +28,18 @@ bool MarkingBarrier::MarkValue(HeapObject host, HeapObject value) {
     // visits the host object.
     return false;
   }
-  if (!ShouldMarkObject(value)) return false;
-
-  if (is_minor()) {
-    // We do not need to insert into RememberedSet<OLD_TO_NEW> here because the
-    // C++ marking barrier already does this for us.
-    if (Heap::InYoungGeneration(value)) {
-      WhiteToGreyAndPush(value);  // NEW->NEW
+  BasicMemoryChunk* target_page = BasicMemoryChunk::FromHeapObject(value);
+  if (is_shared_heap_ != target_page->InSharedHeap()) return false;
+  if (WhiteToGreyAndPush(value)) {
+    if (is_main_thread_barrier_) {
+      incremental_marking_->RestartIfNotMarking();
     }
-    return false;
-  } else {
-    if (WhiteToGreyAndPush(value)) {
-      if (V8_UNLIKELY(v8_flags.track_retaining_path)) {
-        heap_->AddRetainingRoot(Root::kWriteBarrier, value);
-      }
-    }
-    return true;
-  }
-}
 
-bool MarkingBarrier::ShouldMarkObject(HeapObject object) const {
-  if (V8_LIKELY(!uses_shared_heap_)) return true;
-  if (v8_flags.shared_space) {
-    if (is_shared_heap_isolate_) return true;
-    return !object.InSharedHeap();
-  } else {
-    return is_shared_heap_isolate_ == object.InSharedHeap();
+    if (V8_UNLIKELY(FLAG_track_retaining_path)) {
+      heap_->AddRetainingRoot(Root::kWriteBarrier, value);
+    }
   }
+  return true;
 }
 
 template <typename TSlot>
@@ -66,8 +51,7 @@ inline void MarkingBarrier::MarkRange(HeapObject host, TSlot start, TSlot end) {
     // Mark both, weak and strong edges.
     if (object.GetHeapObject(isolate, &heap_object)) {
       if (MarkValue(host, heap_object) && is_compacting_) {
-        DCHECK(is_major());
-        major_collector_->RecordSlot(host, HeapObjectSlot(slot), heap_object);
+        collector_->RecordSlot(host, HeapObjectSlot(slot), heap_object);
       }
     }
   }
@@ -75,7 +59,7 @@ inline void MarkingBarrier::MarkRange(HeapObject host, TSlot start, TSlot end) {
 
 bool MarkingBarrier::WhiteToGreyAndPush(HeapObject obj) {
   if (marking_state_.WhiteToGrey(obj)) {
-    current_worklist_->Push(obj);
+    worklist_.Push(obj);
     return true;
   }
   return false;

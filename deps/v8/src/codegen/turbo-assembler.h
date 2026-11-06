@@ -103,11 +103,18 @@ class V8_EXPORT_PRIVATE TurboAssemblerBase : public Assembler {
 
   V8_INLINE std::string CommentForOffHeapTrampoline(const char* prefix,
                                                     Builtin builtin) {
-    if (!v8_flags.code_comments) return "";
+    if (!FLAG_code_comments) return "";
     std::ostringstream str;
     str << "Inlined  Trampoline for " << prefix << " to "
         << Builtins::name(builtin);
     return str.str();
+  }
+
+  V8_INLINE void RecordCommentForOffHeapTrampoline(Builtin builtin) {
+    if (!FLAG_code_comments) return;
+    std::ostringstream str;
+    str << "[ Inlined Trampoline to " << Builtins::name(builtin);
+    RecordComment(str.str().c_str());
   }
 
   enum class RecordWriteCallMode { kDefault, kWasm };
@@ -122,7 +129,7 @@ class V8_EXPORT_PRIVATE TurboAssemblerBase : public Assembler {
   bool root_array_available_ = true;
 
   // Immediately trap instead of calling {Abort} when debug code fails.
-  bool trap_on_abort_ = v8_flags.trap_on_abort;
+  bool trap_on_abort_ = FLAG_trap_on_abort;
 
   // Emit a C call to abort instead of a runtime call.
   bool hard_abort_ = false;

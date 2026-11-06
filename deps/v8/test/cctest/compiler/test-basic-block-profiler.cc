@@ -15,7 +15,7 @@ class BasicBlockProfilerTest : public RawMachineAssemblerTester<int32_t> {
  public:
   BasicBlockProfilerTest()
       : RawMachineAssemblerTester<int32_t>(MachineType::Int32()) {
-    v8_flags.turbo_profiling = true;
+    FLAG_turbo_profiling = true;
   }
 
   void ResetCounts() {
@@ -46,6 +46,7 @@ class BasicBlockProfilerTest : public RawMachineAssemblerTester<int32_t> {
     }
   }
 };
+
 
 TEST(ProfileDiamond) {
   BasicBlockProfilerTest m;
@@ -100,6 +101,7 @@ TEST(ProfileDiamond) {
     m.Expect(arraysize(expected), expected);
   }
 }
+
 
 TEST(ProfileLoop) {
   BasicBlockProfilerTest m;

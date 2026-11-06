@@ -4,6 +4,8 @@
 
 #include "src/compiler/frame.h"
 
+#include "src/compiler/linkage.h"
+
 namespace v8 {
 namespace internal {
 namespace compiler {
@@ -46,12 +48,13 @@ void FrameAccessState::MarkHasFrame(bool state) {
 }
 
 void FrameAccessState::SetFrameAccessToDefault() {
-  if (has_frame() && !v8_flags.turbo_sp_frame_access) {
+  if (has_frame() && !FLAG_turbo_sp_frame_access) {
     SetFrameAccessToFP();
   } else {
     SetFrameAccessToSP();
   }
 }
+
 
 FrameOffset FrameAccessState::GetFrameOffset(int spill_slot) const {
   const int frame_offset = FrameSlotToFPOffset(spill_slot);
@@ -63,6 +66,7 @@ FrameOffset FrameAccessState::GetFrameOffset(int spill_slot) const {
     return FrameOffset::FromStackPointer(sp_offset);
   }
 }
+
 
 }  // namespace compiler
 }  // namespace internal

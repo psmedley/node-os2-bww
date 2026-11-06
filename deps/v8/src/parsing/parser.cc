@@ -107,10 +107,7 @@ void Parser::ReportUnexpectedTokenAt(Scanner::Location location,
     case Token::PRIVATE_NAME:
     case Token::IDENTIFIER:
       message = MessageTemplate::kUnexpectedTokenIdentifier;
-      // Use ReportMessageAt with the AstRawString parameter; skip the
-      // ReportMessageAt below.
-      ReportMessageAt(location, message, GetIdentifier());
-      return;
+      break;
     case Token::AWAIT:
     case Token::ENUM:
       message = MessageTemplate::kUnexpectedReserved;
@@ -122,7 +119,6 @@ void Parser::ReportUnexpectedTokenAt(Scanner::Location location,
       message = is_strict(language_mode())
                     ? MessageTemplate::kUnexpectedStrictReserved
                     : MessageTemplate::kUnexpectedTokenIdentifier;
-      arg = Token::String(token);
       break;
     case Token::TEMPLATE_SPAN:
     case Token::TEMPLATE_TAIL:
@@ -379,7 +375,7 @@ Expression* Parser::NewV8Intrinsic(const AstRawString* name,
       Runtime::FunctionForName(name->raw_data(), name->length());
 
   // Be more permissive when fuzzing. Intrinsics are not supported.
-  if (v8_flags.fuzzing) {
+  if (FLAG_fuzzing) {
     return NewV8RuntimeFunctionForFuzzing(function, args, pos);
   }
 
@@ -413,7 +409,7 @@ Expression* Parser::NewV8Intrinsic(const AstRawString* name,
 Expression* Parser::NewV8RuntimeFunctionForFuzzing(
     const Runtime::Function* function, const ScopedPtrList<Expression>& args,
     int pos) {
-  CHECK(v8_flags.fuzzing);
+  CHECK(FLAG_fuzzing);
 
   // Intrinsics are not supported for fuzzing. Only allow allowlisted runtime
   // functions. Also prevent later errors due to too few arguments and just
@@ -439,11 +435,10 @@ Expression* Parser::NewV8RuntimeFunctionForFuzzing(
 
 Parser::Parser(LocalIsolate* local_isolate, ParseInfo* info,
                Handle<Script> script)
-    : ParserBase<Parser>(info->zone(), &scanner_, info->stack_limit(),
-                         info->ast_value_factory(),
-                         info->pending_error_handler(),
-                         info->runtime_call_stats(), info->v8_file_logger(),
-                         info->flags(), true),
+    : ParserBase<Parser>(
+          info->zone(), &scanner_, info->stack_limit(),
+          info->ast_value_factory(), info->pending_error_handler(),
+          info->runtime_call_stats(), info->logger(), info->flags(), true),
       local_isolate_(local_isolate),
       info_(info),
       script_(script),
@@ -546,7 +541,7 @@ void Parser::ParseProgram(Isolate* isolate, Handle<Script> script,
                                      : RuntimeCallCounterId::kParseProgram);
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.compile"), "V8.ParseProgram");
   base::ElapsedTimer timer;
-  if (V8_UNLIKELY(v8_flags.log_function_events)) timer.Start();
+  if (V8_UNLIKELY(FLAG_log_function_events)) timer.Start();
 
   // Initialize parser state.
   DeserializeScopeChain(isolate, info, maybe_outer_scope_info,
@@ -564,7 +559,7 @@ void Parser::ParseProgram(Isolate* isolate, Handle<Script> script,
 
   HandleSourceURLComments(isolate, script);
 
-  if (V8_UNLIKELY(v8_flags.log_function_events && result != nullptr)) {
+  if (V8_UNLIKELY(FLAG_log_function_events) && result != nullptr) {
     double ms = timer.Elapsed().InMillisecondsF();
     const char* event_name = "parse-eval";
     int start = -1;
@@ -841,7 +836,7 @@ void Parser::ParseFunction(Isolate* isolate, ParseInfo* info,
   RCS_SCOPE(runtime_call_stats_, RuntimeCallCounterId::kParseFunction);
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.compile"), "V8.ParseFunction");
   base::ElapsedTimer timer;
-  if (V8_UNLIKELY(v8_flags.log_function_events)) timer.Start();
+  if (V8_UNLIKELY(FLAG_log_function_events)) timer.Start();
 
   MaybeHandle<ScopeInfo> maybe_outer_scope_info;
   if (shared_info->HasOuterScopeInfo()) {
@@ -889,7 +884,7 @@ void Parser::ParseFunction(Isolate* isolate, ParseInfo* info,
   }
 
   int function_literal_id = shared_info->function_literal_id();
-  if (V8_UNLIKELY(script->type() == Script::TYPE_WEB_SNAPSHOT)) {
+  if V8_UNLIKELY (script->type() == Script::TYPE_WEB_SNAPSHOT) {
     // Function literal IDs for inner functions haven't been allocated when
     // deserializing. Put the inner function SFIs to the end of the list;
     // they'll be deduplicated later (if the corresponding SFIs exist already)
@@ -927,7 +922,7 @@ void Parser::ParseFunction(Isolate* isolate, ParseInfo* info,
     result->set_function_literal_id(shared_info->function_literal_id());
   }
   PostProcessParseResult(isolate, info, result);
-  if (V8_UNLIKELY(v8_flags.log_function_events && result != nullptr)) {
+  if (V8_UNLIKELY(FLAG_log_function_events) && result != nullptr) {
     double ms = timer.Elapsed().InMillisecondsF();
     // We should already be internalized by now, so the debug name will be
     // available.
@@ -1349,39 +1344,45 @@ ZonePtrList<const Parser::NamedImport>* Parser::ParseNamedImports(int pos) {
 }
 
 ImportAssertions* Parser::ParseImportAssertClause() {
+  // WithClause :
+  //    with '{' '}'
+  //    with '{' WithEntries ','? '}'
+
+  // WithEntries :
+  //    LiteralPropertyName
+  //    LiteralPropertyName ':' StringLiteral , WithEntries
+
+  // (DEPRECATED)
   // AssertClause :
   //    assert '{' '}'
-  //    assert '{' AssertEntries '}'
-
-  // AssertEntries :
-  //    IdentifierName: AssertionKey
-  //    IdentifierName: AssertionKey , AssertEntries
-
-  // AssertionKey :
-  //     IdentifierName
-  //     StringLiteral
+  //    assert '{' WithEntries ','? '}'
 
   auto import_assertions = zone()->New<ImportAssertions>(zone());
 
-  if (!v8_flags.harmony_import_assertions) {
-    return import_assertions;
-  }
+  if (FLAG_harmony_import_attributes && Check(Token::WITH)) {
+    // 'with' keyword consumed
+  } else if (FLAG_harmony_import_assertions &&
+             !scanner()->HasLineTerminatorBeforeNext() &&
+             CheckContextualKeyword(ast_value_factory()->assert_string())) {
+    // The 'assert' contextual keyword is deprecated in favor of 'with', and we
+    // need to investigate feasibility of unshipping.
+    //
+    // TODO(v8:13856): Remove once decision is made to unship 'assert' or keep.
 
-  // Assert clause is optional, and cannot be preceded by a LineTerminator.
-  if (scanner()->HasLineTerminatorBeforeNext() ||
-      !CheckContextualKeyword(ast_value_factory()->assert_string())) {
+    // NOTE(Node.js): Commented out to avoid backporting this use counter to Node.js 18
+    // ++use_counts_[v8::Isolate::kImportAssertionDeprecatedSyntax];
+    info_->pending_error_handler()->ReportWarningAt(
+        position(), end_position(), MessageTemplate::kImportAssertDeprecated,
+        "a future version");
+  } else {
     return import_assertions;
   }
 
   Expect(Token::LBRACE);
 
   while (peek() != Token::RBRACE) {
-    const AstRawString* attribute_key = nullptr;
-    if (Check(Token::STRING)) {
-      attribute_key = GetSymbol();
-    } else {
-      attribute_key = ParsePropertyName();
-    }
+    const AstRawString* attribute_key =
+        Check(Token::STRING) ? GetSymbol() : ParsePropertyName();
 
     Scanner::Location location = scanner()->location();
 
@@ -2695,7 +2696,7 @@ FunctionLiteral* Parser::ParseFunctionLiteral(
   RCS_SCOPE(runtime_call_stats_, RuntimeCallCounterId::kParseFunctionLiteral,
             RuntimeCallStats::kThreadSpecific);
   base::ElapsedTimer timer;
-  if (V8_UNLIKELY(v8_flags.log_function_events)) timer.Start();
+  if (V8_UNLIKELY(FLAG_log_function_events)) timer.Start();
 
   // Determine whether we can lazy parse the inner function. Lazy compilation
   // has to be enabled, which is either forced by overall parse flags or via a
@@ -2709,10 +2710,10 @@ FunctionLiteral* Parser::ParseFunctionLiteral(
       can_preparse && info()->dispatcher() &&
       scanner()->stream()->can_be_cloned_for_parallel_access();
 
-  // If parallel compile tasks are enabled, and this isn't a re-parse, enable
-  // parallel compile for the subset of functions as defined by flags.
+  // If parallel compile tasks are enabled, enable parallel compile for the
+  // subset of functions as defined by flags.
   bool should_post_parallel_task =
-      can_post_parallel_task && !flags().is_reparse() &&
+      can_post_parallel_task &&
       ((is_eager_top_level_function &&
         flags().post_parallel_compile_tasks_for_eager_toplevel()) ||
        (is_lazy && flags().post_parallel_compile_tasks_for_lazy()));
@@ -2770,13 +2771,13 @@ FunctionLiteral* Parser::ParseFunctionLiteral(
                   arguments_for_wrapped_function);
   }
 
-  if (V8_UNLIKELY(v8_flags.log_function_events)) {
+  if (V8_UNLIKELY(FLAG_log_function_events)) {
     double ms = timer.Elapsed().InMillisecondsF();
     const char* event_name =
         should_preparse
             ? (is_top_level ? "preparse-no-resolution" : "preparse-resolution")
             : "full-parse";
-    v8_file_logger_->FunctionEvent(
+    logger_->FunctionEvent(
         event_name, flags().script_id(), ms, scope->start_position(),
         scope->end_position(),
         reinterpret_cast<const char*>(function_name->raw_data()),
@@ -3390,6 +3391,8 @@ void Parser::UpdateStatistics(Isolate* isolate, Handle<Script> script) {
       isolate->CountUsage(v8::Isolate::kHtmlCommentInExternalScript);
     }
   }
+  isolate->counters()->total_preparse_skipped()->Increment(
+      total_preparse_skipped_);
 }
 
 void Parser::UpdateStatistics(

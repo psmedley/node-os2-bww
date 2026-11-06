@@ -14,6 +14,7 @@
 
 namespace v8 {
 namespace internal {
+namespace compiler {
 
 std::ostream& operator<<(std::ostream& os, BranchHint hint) {
   switch (hint) {
@@ -26,8 +27,6 @@ std::ostream& operator<<(std::ostream& os, BranchHint hint) {
   }
   UNREACHABLE();
 }
-
-namespace compiler {
 
 std::ostream& operator<<(std::ostream& os, TrapId trap_id) {
   switch (trap_id) {
@@ -89,6 +88,13 @@ DeoptimizeParameters const& DeoptimizeParametersOf(Operator const* const op) {
          op->opcode() == IrOpcode::kDeoptimizeIf ||
          op->opcode() == IrOpcode::kDeoptimizeUnless);
   return OpParameter<DeoptimizeParameters>(op);
+}
+
+const Operator* CommonOperatorBuilder::DelayedStringConstant(
+    const StringConstantBase* str) {
+  return zone()->New<Operator1<const StringConstantBase*>>(
+      IrOpcode::kDelayedStringConstant, Operator::kPure,
+      "DelayedStringConstant", 0, 0, 0, 1, 0, 0, str);
 }
 
 bool operator==(SelectParameters const& lhs, SelectParameters const& rhs) {
@@ -761,7 +767,7 @@ struct CommonOperatorGlobalCache final {
               IrOpcode::kTrapIf,                         // opcode
               Operator::kFoldable | Operator::kNoThrow,  // properties
               "TrapIf",                                  // name
-              1, 1, 1, 0, 1, 1,                          // counts
+              1, 1, 1, 0, 0, 1,                          // counts
               trap_id) {}                                // parameter
   };
 #define CACHED_TRAP_IF(Trap) \
@@ -776,7 +782,7 @@ struct CommonOperatorGlobalCache final {
               IrOpcode::kTrapUnless,                     // opcode
               Operator::kFoldable | Operator::kNoThrow,  // properties
               "TrapUnless",                              // name
-              1, 1, 1, 0, 1, 1,                          // counts
+              1, 1, 1, 0, 0, 1,                          // counts
               trap_id) {}                                // parameter
   };
 #define CACHED_TRAP_UNLESS(Trap) \
@@ -1003,7 +1009,7 @@ const Operator* CommonOperatorBuilder::TrapIf(TrapId trap_id) {
       IrOpcode::kTrapIf,                         // opcode
       Operator::kFoldable | Operator::kNoThrow,  // properties
       "TrapIf",                                  // name
-      1, 1, 1, 0, 1, 1,                          // counts
+      1, 1, 1, 0, 0, 1,                          // counts
       trap_id);                                  // parameter
 }
 
@@ -1022,7 +1028,7 @@ const Operator* CommonOperatorBuilder::TrapUnless(TrapId trap_id) {
       IrOpcode::kTrapUnless,                     // opcode
       Operator::kFoldable | Operator::kNoThrow,  // properties
       "TrapUnless",                              // name
-      1, 1, 1, 0, 1, 1,                          // counts
+      1, 1, 1, 0, 0, 1,                          // counts
       trap_id);                                  // parameter
 }
 
@@ -1167,7 +1173,7 @@ const Operator* CommonOperatorBuilder::TaggedIndexConstant(int32_t value) {
       value);                                           // parameter
 }
 
-const Operator* CommonOperatorBuilder::Float32Constant(float value) {
+const Operator* CommonOperatorBuilder::Float32Constant(volatile float value) {
   return zone()->New<Operator1<float>>(             // --
       IrOpcode::kFloat32Constant, Operator::kPure,  // opcode
       "Float32Constant",                            // name
@@ -1176,7 +1182,7 @@ const Operator* CommonOperatorBuilder::Float32Constant(float value) {
 }
 
 
-const Operator* CommonOperatorBuilder::Float64Constant(double value) {
+const Operator* CommonOperatorBuilder::Float64Constant(volatile double value) {
   return zone()->New<Operator1<double>>(            // --
       IrOpcode::kFloat64Constant, Operator::kPure,  // opcode
       "Float64Constant",                            // name
@@ -1195,7 +1201,7 @@ const Operator* CommonOperatorBuilder::ExternalConstant(
 }
 
 
-const Operator* CommonOperatorBuilder::NumberConstant(double value) {
+const Operator* CommonOperatorBuilder::NumberConstant(volatile double value) {
   return zone()->New<Operator1<double>>(           // --
       IrOpcode::kNumberConstant, Operator::kPure,  // opcode
       "NumberConstant",                            // name
@@ -1233,6 +1239,11 @@ Handle<HeapObject> HeapConstantOf(const Operator* op) {
   DCHECK(IrOpcode::kHeapConstant == op->opcode() ||
          IrOpcode::kCompressedHeapConstant == op->opcode());
   return OpParameter<Handle<HeapObject>>(op);
+}
+
+const StringConstantBase* StringConstantBaseOf(const Operator* op) {
+  DCHECK_EQ(IrOpcode::kDelayedStringConstant, op->opcode());
+  return OpParameter<const StringConstantBase*>(op);
 }
 
 const char* StaticAssertSourceOf(const Operator* op) {

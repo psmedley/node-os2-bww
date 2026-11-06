@@ -490,9 +490,6 @@ changes:
     - v16.14.0
     pr-url: https://github.com/nodejs/node/pull/41003
     description: The `numericSeparator` option is supported now.
-  - version: v16.18.0
-    pr-url: https://github.com/nodejs/node/pull/43576
-    description: add support for `maxArrayLength` when inspecting `Set` and `Map`.
   - version:
     - v14.6.0
     - v12.19.0
@@ -589,9 +586,8 @@ changes:
   * `showProxy` {boolean} If `true`, `Proxy` inspection includes
     the [`target` and `handler`][] objects. **Default:** `false`.
   * `maxArrayLength` {integer} Specifies the maximum number of `Array`,
-    [`TypedArray`][], [`Map`][], [`Set`][], [`WeakMap`][],
-    and [`WeakSet`][] elements to include when formatting.
-    Set to `null` or `Infinity` to show all elements. Set to `0` or
+    [`TypedArray`][], [`WeakMap`][], and [`WeakSet`][] elements to include when
+    formatting. Set to `null` or `Infinity` to show all elements. Set to `0` or
     negative to show no elements. **Default:** `100`.
   * `maxStringLength` {integer} Specifies the maximum number of characters to
     include when formatting. Set to `null` or `Infinity` to show all elements.
@@ -1027,7 +1023,7 @@ equality.
 ## Class: `util.MIMEType`
 
 <!-- YAML
-added: v19.1.0
+added: v18.13.0
 -->
 
 > Stability: 1 - Experimental
@@ -1078,7 +1074,7 @@ console.log(String(myMIME));
 // Prints: text/plain
 ```
 
-#### `mime.type`
+### `mime.type`
 
 * {string}
 
@@ -1107,10 +1103,10 @@ myMIME.type = 'application';
 console.log(myMIME.type);
 // Prints: application
 console.log(String(myMIME));
-// Prints: application/javascript/javascript
+// Prints: application/javascript
 ```
 
-#### `mime.subtype`
+### `mime.subtype`
 
 * {string}
 
@@ -1142,7 +1138,7 @@ console.log(String(myMIME));
 // Prints: text/javascript
 ```
 
-#### `mime.essence`
+### `mime.essence`
 
 * {string}
 
@@ -1175,7 +1171,7 @@ console.log(String(myMIME));
 // Prints: application/javascript;key=value
 ```
 
-#### `mime.params`
+### `mime.params`
 
 * {MIMEParams}
 
@@ -1183,7 +1179,7 @@ Gets the [`MIMEParams`][] object representing the
 parameters of the MIME. This property is read-only. See
 [`MIMEParams`][] documentation for details.
 
-#### `mime.toString()`
+### `mime.toString()`
 
 * Returns: {string}
 
@@ -1192,7 +1188,7 @@ The `toString()` method on the `MIMEType` object returns the serialized MIME.
 Because of the need for standard compliance, this method does not allow users
 to customize the serialization process of the MIME.
 
-#### `mime.toJSON()`
+### `mime.toJSON()`
 
 * Returns: {string}
 
@@ -1223,16 +1219,16 @@ console.log(JSON.stringify(myMIMES));
 // Prints: ["image/png", "image/gif"]
 ```
 
-### Class: `util.MIMEParams`
+## Class: `util.MIMEParams`
 
 <!-- YAML
-added: v19.1.0
+added: v18.13.0
 -->
 
 The `MIMEParams` API provides read and write access to the parameters of a
 `MIMEType`.
 
-#### Constructor: `new MIMEParams()`
+### Constructor: `new MIMEParams()`
 
 Creates a new `MIMEParams` object by with empty parameters
 
@@ -1248,13 +1244,13 @@ const { MIMEParams } = require('node:util');
 const myParams = new MIMEParams();
 ```
 
-#### `mimeParams.delete(name)`
+### `mimeParams.delete(name)`
 
 * `name` {string}
 
 Remove all name-value pairs whose name is `name`.
 
-#### `mimeParams.entries()`
+### `mimeParams.entries()`
 
 * Returns: {Iterator}
 
@@ -1262,7 +1258,7 @@ Returns an iterator over each of the name-value pairs in the parameters.
 Each item of the iterator is a JavaScript `Array`. The first item of the array
 is the `name`, the second item of the array is the `value`.
 
-#### `mimeParams.get(name)`
+### `mimeParams.get(name)`
 
 * `name` {string}
 * Returns: {string} or `null` if there is no name-value pair with the given
@@ -1271,14 +1267,14 @@ is the `name`, the second item of the array is the `value`.
 Returns the value of the first name-value pair whose name is `name`. If there
 are no such pairs, `null` is returned.
 
-#### `mimeParams.has(name)`
+### `mimeParams.has(name)`
 
 * `name` {string}
 * Returns: {boolean}
 
 Returns `true` if there is at least one name-value pair whose name is `name`.
 
-#### `mimeParams.keys()`
+### `mimeParams.keys()`
 
 * Returns: {Iterator}
 
@@ -1308,7 +1304,7 @@ for (const name of params.keys()) {
 //   bar
 ```
 
-#### `mimeParams.set(name, value)`
+### `mimeParams.set(name, value)`
 
 * `name` {string}
 * `value` {string}
@@ -1337,13 +1333,13 @@ console.log(params.toString());
 // Prints: foo=def&bar=1&baz=xyz
 ```
 
-#### `mimeParams.values()`
+### `mimeParams.values()`
 
 * Returns: {Iterator}
 
 Returns an iterator over the values of each name-value pair.
 
-#### `mimeParams[@@iterator]()`
+### `mimeParams[@@iterator]()`
 
 * Returns: {Iterator}
 
@@ -1376,9 +1372,7 @@ for (const [name, value] of params) {
 ## `util.parseArgs([config])`
 
 <!-- YAML
-added:
-  - v18.3.0
-  - v16.17.0
+added: v18.3.0
 changes:
   - version: v18.11.0
     pr-url: https://github.com/nodejs/node/pull/44631
@@ -1476,7 +1470,7 @@ conversation in [pkgjs/parseargs][] to contribute to the design.
 
 ### `parseArgs` `tokens`
 
-Detailed parse information is available for adding custom behaviours by
+Detailed parse information is available for adding custom behaviors by
 specifying `tokens: true` in the configuration.
 The returned tokens have properties describing:
 
@@ -1983,6 +1977,51 @@ const channel = new MessageChannel();
 channel.port2.postMessage(signal, [signal]);
 ```
 
+## `util.aborted(signal, resource)`
+
+<!-- YAML
+added: v18.16.0
+-->
+
+> Stability: 1 - Experimental
+
+* `signal` {AbortSignal}
+* `resource` {Object} Any non-null entity, reference to which is held weakly.
+* Returns: {Promise}
+
+Listens to abort event on the provided `signal` and
+returns a promise that is fulfilled when the `signal` is
+aborted. If the passed `resource` is garbage collected before the `signal` is
+aborted, the returned promise shall remain pending indefinitely.
+
+```cjs
+const { aborted } = require('node:util');
+
+const dependent = obtainSomethingAbortable();
+
+aborted(dependent.signal, dependent).then(() => {
+  // Do something when dependent is aborted.
+});
+
+dependent.on('event', () => {
+  dependent.abort();
+});
+```
+
+```mjs
+import { aborted } from 'node:util';
+
+const dependent = obtainSomethingAbortable();
+
+aborted(dependent.signal, dependent).then(() => {
+  // Do something when dependent is aborted.
+});
+
+dependent.on('event', () => {
+  dependent.abort();
+});
+```
+
 ## `util.types`
 
 <!-- YAML
@@ -2465,12 +2504,43 @@ added: v10.0.0
 * `value` {any}
 * Returns: {boolean}
 
-Returns `true` if the value is an instance of a built-in [`Error`][] type.
+Returns `true` if the value was returned by the constructor of a
+[built-in `Error` type][].
 
 ```js
-util.types.isNativeError(new Error());  // Returns true
-util.types.isNativeError(new TypeError());  // Returns true
-util.types.isNativeError(new RangeError());  // Returns true
+console.log(util.types.isNativeError(new Error()));  // true
+console.log(util.types.isNativeError(new TypeError()));  // true
+console.log(util.types.isNativeError(new RangeError()));  // true
+```
+
+Subclasses of the native error types are also native errors:
+
+```js
+class MyError extends Error {}
+console.log(util.types.isNativeError(new MyError()));  // true
+```
+
+A value being `instanceof` a native error class is not equivalent to `isNativeError()`
+returning `true` for that value. `isNativeError()` returns `true` for errors
+which come from a different [realm][] while `instanceof Error` returns `false`
+for these errors:
+
+```js
+const vm = require('node:vm');
+const context = vm.createContext({});
+const myError = vm.runInContext('new Error()', context);
+console.log(util.types.isNativeError(myError)); // true
+console.log(myError instanceof Error); // false
+```
+
+Conversely, `isNativeError()` returns `false` for all objects which were not
+returned by the constructor of a native error. That includes values
+which are `instanceof` native errors:
+
+```js
+const myError = { __proto__: Error.prototype };
+console.log(util.types.isNativeError(myError)); // false
+console.log(myError instanceof Error); // true
 ```
 
 ### `util.types.isNumberObject(value)`
@@ -3285,11 +3355,13 @@ util.log('Timestamped message.');
 [`util.types.isNativeError()`]: #utiltypesisnativeerrorvalue
 [`util.types.isSharedArrayBuffer()`]: #utiltypesissharedarraybuffervalue
 [async function]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/async_function
+[built-in `Error` type]: https://tc39.es/ecma262/#sec-error-objects
 [compare function]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort#Parameters
 [constructor]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/constructor
 [default sort]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort
 [global symbol registry]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Symbol/for
 [list of deprecated APIS]: deprecations.md#list-of-deprecated-apis
 [pkgjs/parseargs]: https://github.com/pkgjs/parseargs
+[realm]: https://tc39.es/ecma262/#realm
 [semantically incompatible]: https://github.com/nodejs/node/issues/4179
 [util.inspect.custom]: #utilinspectcustom
