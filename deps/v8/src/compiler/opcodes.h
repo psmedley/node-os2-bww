@@ -183,8 +183,7 @@
   V(JSStoreInArrayLiteral)             \
   V(JSDeleteProperty)                  \
   V(JSHasProperty)                     \
-  V(JSGetSuperConstructor)             \
-  V(JSFindNonDefaultConstructorOrConstruct)
+  V(JSGetSuperConstructor)
 
 #define JS_CONTEXT_OP_LIST(V) \
   V(JSHasContextExtension)    \
@@ -288,7 +287,6 @@
   V(CheckedUint32ToTaggedSigned)      \
   V(CheckedUint64Bounds)              \
   V(CheckedUint64ToInt32)             \
-  V(CheckedUint64ToInt64)             \
   V(CheckedUint64ToTaggedSigned)      \
   V(CheckedFloat64ToInt32)            \
   V(CheckedFloat64ToInt64)            \
@@ -299,8 +297,7 @@
   V(CheckedTaggedToFloat64)           \
   V(CheckedTaggedToInt64)             \
   V(CheckedTaggedToTaggedSigned)      \
-  V(CheckedTaggedToTaggedPointer)     \
-  V(CheckedBigInt64Add)
+  V(CheckedTaggedToTaggedPointer)
 
 #define SIMPLIFIED_COMPARE_BINOP_LIST(V) \
   V(NumberEqual)                         \
@@ -337,10 +334,7 @@
 
 #define SIMPLIFIED_BIGINT_BINOP_LIST(V) \
   V(BigIntAdd)                          \
-  V(BigIntSubtract)                     \
-  V(BigIntMultiply)                     \
-  V(BigIntDivide)                       \
-  V(BigIntBitwiseAnd)
+  V(BigIntSubtract)
 
 #define SIMPLIFIED_SPECULATIVE_NUMBER_BINOP_LIST(V) \
   V(SpeculativeNumberAdd)                           \
@@ -396,8 +390,7 @@
 
 #define SIMPLIFIED_BIGINT_UNOP_LIST(V) \
   V(BigIntNegate)                      \
-  V(CheckBigInt)                       \
-  V(CheckBigInt64)
+  V(CheckBigInt)
 
 #define SIMPLIFIED_SPECULATIVE_NUMBER_UNOP_LIST(V) V(SpeculativeToNumber)
 
@@ -427,11 +420,11 @@
   V(ConvertReceiver)                    \
   V(ConvertTaggedHoleToUndefined)       \
   V(DateNow)                            \
+  V(DelayedStringConstant)              \
   V(EnsureWritableFastElements)         \
   V(FastApiCall)                        \
   V(FindOrderedHashMapEntry)            \
   V(FindOrderedHashMapEntryForInt32Key) \
-  V(FindOrderedHashSetEntry)            \
   V(InitializeImmutableInObject)        \
   V(LoadDataViewElement)                \
   V(LoadElement)                        \
@@ -500,31 +493,16 @@
   V(TransitionAndStoreNumberElement)    \
   V(TransitionElementsKind)             \
   V(TypeOf)                             \
-  V(Unsigned32Divide)                   \
   V(VerifyType)
 
 #define SIMPLIFIED_SPECULATIVE_BIGINT_BINOP_LIST(V) \
   V(SpeculativeBigIntAdd)                           \
-  V(SpeculativeBigIntSubtract)                      \
-  V(SpeculativeBigIntMultiply)                      \
-  V(SpeculativeBigIntDivide)                        \
-  V(SpeculativeBigIntBitwiseAnd)
+  V(SpeculativeBigIntSubtract)
 
 #define SIMPLIFIED_SPECULATIVE_BIGINT_UNOP_LIST(V) \
   V(SpeculativeBigIntAsIntN)                       \
   V(SpeculativeBigIntAsUintN)                      \
   V(SpeculativeBigIntNegate)
-
-#define SIMPLIFIED_WASM_OP_LIST(V) \
-  V(AssertNotNull)                 \
-  V(IsNull)                        \
-  V(IsNotNull)                     \
-  V(Null)                          \
-  V(RttCanon)                      \
-  V(WasmTypeCast)                  \
-  V(WasmTypeCheck)                 \
-  V(WasmExternInternalize)         \
-  V(WasmExternExternalize)
 
 #define SIMPLIFIED_OP_LIST(V)                 \
   SIMPLIFIED_CHANGE_OP_LIST(V)                \
@@ -538,7 +516,6 @@
   SIMPLIFIED_SPECULATIVE_NUMBER_UNOP_LIST(V)  \
   SIMPLIFIED_SPECULATIVE_BIGINT_UNOP_LIST(V)  \
   SIMPLIFIED_SPECULATIVE_BIGINT_BINOP_LIST(V) \
-  IF_WASM(SIMPLIFIED_WASM_OP_LIST, V)         \
   SIMPLIFIED_OTHER_OP_LIST(V)
 
 // Opcodes for Machine-level operators.
@@ -605,13 +582,10 @@
   V(Int64Sub)                    \
   V(Int64SubWithOverflow)        \
   V(Int64Mul)                    \
-  V(Int64MulHigh)                \
-  V(Int64MulWithOverflow)        \
   V(Int64Div)                    \
   V(Int64Mod)                    \
   V(Uint64Div)                   \
-  V(Uint64Mod)                   \
-  V(Uint64MulHigh)
+  V(Uint64Mod)
 
 #define MACHINE_FLOAT32_UNOP_LIST(V) \
   V(Float32Abs)                      \
@@ -745,8 +719,6 @@
   V(TryTruncateFloat64ToInt64)           \
   V(TryTruncateFloat32ToUint64)          \
   V(TryTruncateFloat64ToUint64)          \
-  V(TryTruncateFloat64ToInt32)           \
-  V(TryTruncateFloat64ToUint32)          \
   V(ChangeInt32ToFloat64)                \
   V(BitcastWord32ToWord64)               \
   V(ChangeInt32ToInt64)                  \
@@ -793,8 +765,8 @@
   V(SignExtendWord8ToInt64)              \
   V(SignExtendWord16ToInt64)             \
   V(SignExtendWord32ToInt64)             \
-  V(StackPointerGreaterThan)             \
-  V(TraceInstruction)
+  V(UnsafePointerAdd)                    \
+  V(StackPointerGreaterThan)
 
 #define MACHINE_SIMD_OP_LIST(V)  \
   V(F64x2Splat)                  \
@@ -832,6 +804,8 @@
   V(F32x4Abs)                    \
   V(F32x4Neg)                    \
   V(F32x4Sqrt)                   \
+  V(F32x4RecipApprox)            \
+  V(F32x4RecipSqrtApprox)        \
   V(F32x4Add)                    \
   V(F32x4Sub)                    \
   V(F32x4Mul)                    \
@@ -1020,9 +994,6 @@
   V(I32x4RelaxedTruncF32x4U)     \
   V(I32x4RelaxedTruncF64x2SZero) \
   V(I32x4RelaxedTruncF64x2UZero) \
-  V(I16x8RelaxedQ15MulRS)        \
-  V(I16x8DotI8x16I7x16S)         \
-  V(I32x4DotI8x16I7x16AddS)      \
   V(I8x16Shuffle)                \
   V(V128AnyTrue)                 \
   V(I64x2AllTrue)                \
@@ -1191,19 +1162,6 @@ class V8_EXPORT_PRIVATE IrOpcode {
   static bool IsFeedbackCollectingOpcode(int16_t value) {
     DCHECK(0 <= value && value <= kLast);
     return IsFeedbackCollectingOpcode(static_cast<IrOpcode::Value>(value));
-  }
-
-  static bool isAtomicOpOpcode(Value value) {
-    switch (value) {
-    #define CASE(Name, ...) \
-      case k##Name:         \
-        return true;
-      MACHINE_ATOMIC_OP_LIST(CASE)
-      default:
-        return false;
-    #undef CASE
-    }
-    UNREACHABLE();
   }
 };
 

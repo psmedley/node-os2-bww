@@ -111,12 +111,6 @@ BUILTIN(CallSitePrototypeGetPromiseIndex) {
   return Smi::FromInt(CallSiteInfo::GetSourcePosition(frame));
 }
 
-BUILTIN(CallSitePrototypeGetScriptHash) {
-  HandleScope scope(isolate);
-  CHECK_CALLSITE(frame, "getScriptHash");
-  return *CallSiteInfo::GetScriptHash(frame);
-}
-
 BUILTIN(CallSitePrototypeGetScriptNameOrSourceURL) {
   HandleScope scope(isolate);
   CHECK_CALLSITE(frame, "getScriptNameOrSourceUrl");

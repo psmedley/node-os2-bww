@@ -12,6 +12,7 @@
 
 #include "src/wasm/module-decoder.h"
 #include "src/wasm/wasm-module-builder.h"
+#include "test/common/wasm/wasm-interpreter.h"
 
 namespace v8 {
 namespace internal {

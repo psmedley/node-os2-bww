@@ -17,10 +17,8 @@ namespace v8 {
 namespace internal {
 
 namespace {
-
-template <typename CodeOrCodeT>
-struct CodeOrCodeTOps {
-  Handle<CodeOrCodeT> code;
+struct JSOps {
+  Handle<Code> code;
 
   Address constant_pool() const { return code->constant_pool(); }
   Address instruction_start() const { return code->InstructionStart(); }
@@ -33,11 +31,8 @@ struct CodeOrCodeTOps {
   int code_comments_size() const { return code->code_comments_size(); }
 };
 
-using CodeOps = CodeOrCodeTOps<Code>;
-using CodeTOps = CodeOrCodeTOps<CodeT>;
-
 #if V8_ENABLE_WEBASSEMBLY
-struct WasmCodeOps {
+struct WasmOps {
   const wasm::WasmCode* code;
 
   Address constant_pool() const { return code->constant_pool(); }
@@ -87,28 +82,32 @@ struct CodeDescOps {
 }  // namespace
 
 #if V8_ENABLE_WEBASSEMBLY
-#define HANDLE_WASM(...) __VA_ARGS__
-#else
-#define HANDLE_WASM(...) UNREACHABLE()
-#endif
-
-#define DISPATCH(ret, method)                                 \
-  ret CodeReference::method() const {                         \
-    DCHECK(!is_null());                                       \
-    switch (kind_) {                                          \
-      case Kind::CODE:                                        \
-        return CodeOps{code_}.method();                       \
-      case Kind::CODET:                                       \
-        CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);                   \
-        return CodeTOps{codet_}.method();                     \
-      case Kind::WASM_CODE:                                   \
-        HANDLE_WASM(return WasmCodeOps{wasm_code_}.method()); \
-      case Kind::CODE_DESC:                                   \
-        return CodeDescOps{code_desc_}.method();              \
-      default:                                                \
-        UNREACHABLE();                                        \
-    }                                                         \
+#define DISPATCH(ret, method)                    \
+  ret CodeReference::method() const {            \
+    DCHECK(!is_null());                          \
+    switch (kind_) {                             \
+      case Kind::JS:                             \
+        return JSOps{js_code_}.method();         \
+      case Kind::WASM:                           \
+        return WasmOps{wasm_code_}.method();     \
+      case Kind::CODE_DESC:                      \
+        return CodeDescOps{code_desc_}.method(); \
+      default:                                   \
+        UNREACHABLE();                           \
+    }                                            \
   }
+#else
+#define DISPATCH(ret, method)                              \
+  ret CodeReference::method() const {                      \
+    DCHECK(!is_null());                                    \
+    DCHECK(kind_ == Kind::JS || kind_ == Kind::CODE_DESC); \
+    if (kind_ == Kind::JS) {                               \
+      return JSOps{js_code_}.method();                     \
+    } else {                                               \
+      return CodeDescOps{code_desc_}.method();             \
+    }                                                      \
+  }
+#endif  // V8_ENABLE_WEBASSEMBLY
 
 DISPATCH(Address, constant_pool)
 DISPATCH(Address, instruction_start)
@@ -121,7 +120,6 @@ DISPATCH(Address, code_comments)
 DISPATCH(int, code_comments_size)
 
 #undef DISPATCH
-#undef HANDLE_WASM
 
 }  // namespace internal
 }  // namespace v8

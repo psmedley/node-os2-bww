@@ -19,11 +19,7 @@
 #include <sys/syscall.h>
 #endif
 
-#if V8_OS_AIX || V8_TARGET_ARCH_S390X
-
-#include "src/base/platform/time.h"
-
-#elif V8_OS_DARWIN
+#if V8_OS_DARWIN
 #include <mach/mach.h>
 // OpenBSD doesn't have <ucontext.h>. ucontext_t lives in <signal.h>
 // and is a typedef for struct sigcontext. There is no uc_mcontext.
@@ -338,22 +334,19 @@ class Sampler::PlatformData {
 class SignalHandler {
  public:
   static void IncreaseSamplerCount() {
-    base::RecursiveMutexGuard lock_guard(mutex_.Pointer());
+    base::MutexGuard lock_guard(mutex_.Pointer());
     if (++client_count_ == 1) Install();
   }
 
   static void DecreaseSamplerCount() {
-    base::RecursiveMutexGuard lock_guard(mutex_.Pointer());
+    base::MutexGuard lock_guard(mutex_.Pointer());
     if (--client_count_ == 0) Restore();
   }
 
   static bool Installed() {
-    // mutex_ will also be used in Sampler::DoSample to guard the state below.
-    base::RecursiveMutexGuard lock_guard(mutex_.Pointer());
+    base::MutexGuard lock_guard(mutex_.Pointer());
     return signal_handler_installed_;
   }
-
-  static v8::base::RecursiveMutex* mutex() { return mutex_.Pointer(); }
 
  private:
   static void Install() {
@@ -371,14 +364,8 @@ class SignalHandler {
 
   static void Restore() {
     if (signal_handler_installed_) {
-      signal_handler_installed_ = false;
-#if V8_OS_AIX || V8_TARGET_ARCH_S390X
-      // On Aix, IBMi & zLinux SIGPROF can sometimes arrive after the
-      // default signal handler is restored, resulting in intermittent test
-      // failure when profiling is enabled (https://crbug.com/v8/12952)
-      base::OS::Sleep(base::TimeDelta::FromMicroseconds(10));
-#endif
       sigaction(SIGPROF, &old_signal_handler_, nullptr);
+      signal_handler_installed_ = false;
     }
   }
 
@@ -386,15 +373,13 @@ class SignalHandler {
   static void HandleProfilerSignal(int signal, siginfo_t* info, void* context);
 
   // Protects the process wide state below.
-  static base::LazyRecursiveMutex mutex_;
+  static base::LazyMutex mutex_;
   static int client_count_;
   static bool signal_handler_installed_;
   static struct sigaction old_signal_handler_;
 };
 
-base::LazyRecursiveMutex SignalHandler::mutex_ =
-    LAZY_RECURSIVE_MUTEX_INITIALIZER;
-
+base::LazyMutex SignalHandler::mutex_ = LAZY_MUTEX_INITIALIZER;
 int SignalHandler::client_count_ = 0;
 struct sigaction SignalHandler::old_signal_handler_;
 bool SignalHandler::signal_handler_installed_ = false;
@@ -446,6 +431,10 @@ void SignalHandler::FillRegisterState(void* context, RegisterState* state) {
   state->fp = reinterpret_cast<void*>(mcontext.regs[29]);
   // LR is an alias for x30.
   state->lr = reinterpret_cast<void*>(mcontext.regs[30]);
+#elif V8_HOST_ARCH_MIPS
+  state->pc = reinterpret_cast<void*>(mcontext.pc);
+  state->sp = reinterpret_cast<void*>(mcontext.gregs[29]);
+  state->fp = reinterpret_cast<void*>(mcontext.gregs[30]);
 #elif V8_HOST_ARCH_MIPS64
   state->pc = reinterpret_cast<void*>(mcontext.pc);
   state->sp = reinterpret_cast<void*>(mcontext.gregs[29]);
@@ -479,7 +468,7 @@ void SignalHandler::FillRegisterState(void* context, RegisterState* state) {
   state->sp = reinterpret_cast<void*>(ucontext->uc_mcontext.gregs[15]);
   state->fp = reinterpret_cast<void*>(ucontext->uc_mcontext.gregs[11]);
   state->lr = reinterpret_cast<void*>(ucontext->uc_mcontext.gregs[14]);
-#elif V8_HOST_ARCH_RISCV64 || V8_HOST_ARCH_RISCV32
+#elif V8_HOST_ARCH_RISCV64
   // Spec CH.25 RISC-V Assembly Programmer’s Handbook
   state->pc = reinterpret_cast<void*>(mcontext.__gregs[REG_PC]);
   state->sp = reinterpret_cast<void*>(mcontext.__gregs[REG_SP]);
@@ -603,7 +592,6 @@ void Sampler::Stop() {
 #if defined(USE_SIGNALS)
 
 void Sampler::DoSample() {
-  base::RecursiveMutexGuard lock_guard(SignalHandler::mutex());
   if (!SignalHandler::Installed()) return;
   DCHECK(IsActive());
   SetShouldRecordSample();

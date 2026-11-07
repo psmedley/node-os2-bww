@@ -41,18 +41,14 @@ class RegisterBase {
   constexpr bool is_valid() const { return reg_code_ != kCode_no_reg; }
 
   constexpr int8_t code() const {
-    // Only assume that it's positive (not no_reg); arm64 uses
-    // kSPRegInternalCode which is > kNumRegisters.
-    V8_ASSUME(reg_code_ >= 0);
+    DCHECK(is_valid());
     return reg_code_;
   }
 
-  inline constexpr bool operator==(
-      const RegisterBase<SubType, kAfterLastRegister>& other) const {
+  inline constexpr bool operator==(SubType other) const {
     return reg_code_ == other.reg_code_;
   }
-  inline constexpr bool operator!=(
-      const RegisterBase<SubType, kAfterLastRegister>& other) const {
+  inline constexpr bool operator!=(SubType other) const {
     return reg_code_ != other.reg_code_;
   }
 
@@ -64,7 +60,7 @@ class RegisterBase {
 
  private:
   int8_t reg_code_;
-  static_assert(kAfterLastRegister <= kMaxInt8);
+  STATIC_ASSERT(kAfterLastRegister <= kMaxInt8);
 };
 
 template <typename RegType,
@@ -79,7 +75,7 @@ inline std::ostream& operator<<(std::ostream& os, RegType reg) {
 #define DEFINE_REGISTER_NAMES(RegType, LIST)                                   \
   inline const char* RegisterName(RegType reg) {                               \
     static constexpr const char* Names[] = {LIST(DEFINE_REGISTER_NAMES_NAME)}; \
-    static_assert(arraysize(Names) == RegType::kNumRegisters);                 \
+    STATIC_ASSERT(arraysize(Names) == RegType::kNumRegisters);                 \
     return reg.is_valid() ? Names[reg.code()] : "invalid";                     \
   }
 

@@ -11,6 +11,7 @@
 
 #include "src/base/numbers/dtoa.h"
 #include "src/base/numbers/strtod.h"
+#include "src/base/platform/wrappers.h"
 #include "src/base/small-vector.h"
 #include "src/bigint/bigint.h"
 #include "src/common/assert-scope.h"
@@ -140,7 +141,7 @@ class SimpleStringBuilder {
 };
 
 inline double JunkStringValue() {
-  return base::bit_cast<double, uint64_t>(kQuietNaNMask);
+  return bit_cast<double, uint64_t>(kQuietNaNMask);
 }
 
 inline double SignedZero(bool negative) {
@@ -461,7 +462,7 @@ void StringToIntHelper<IsolateT>::DetectRadixInternal(Char current,
   }
 
   DCHECK(radix_ >= 2 && radix_ <= 36);
-  static_assert(String::kMaxLength <= INT_MAX);
+  STATIC_ASSERT(String::kMaxLength <= INT_MAX);
   cursor_ = static_cast<int>(current - start);
 }
 
@@ -975,10 +976,6 @@ class StringToBigIntHelper : public StringToIntHelper<IsolateT> {
   std::unique_ptr<char[]> DecimalString(bigint::Processor* processor) {
     DCHECK_EQ(behavior_, Behavior::kLiteral);
     this->ParseInt();
-    if (this->state() == State::kZero) {
-      // Input may have been "0x0" or similar.
-      return std::unique_ptr<char[]>(new char[2]{'0', '\0'});
-    }
     DCHECK_EQ(this->state(), State::kDone);
     int num_digits = accumulator_.ResultLength();
     base::SmallVector<bigint::digit_t, 8> digit_storage(num_digits);
@@ -1516,11 +1513,6 @@ bool IsSpecialIndex(String string) {
   }
   return true;
 }
-
-float DoubleToFloat32_NoInline(double x) { return DoubleToFloat32(x); }
-
-int32_t DoubleToInt32_NoInline(double x) { return DoubleToInt32(x); }
-
 }  // namespace internal
 }  // namespace v8
 

@@ -26,7 +26,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Inlined function call in a test context.  Should never crash even
-// with --always-turbofan.
+// with --always-opt.
 var x;
 
 function f() { if (g()) { } }

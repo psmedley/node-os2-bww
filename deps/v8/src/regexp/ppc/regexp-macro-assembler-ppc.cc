@@ -562,8 +562,8 @@ void RegExpMacroAssemblerPPC::CheckBitInTable(Handle<ByteArray> table,
   BranchOrBacktrack(ne, on_bit_set);
 }
 
-bool RegExpMacroAssemblerPPC::CheckSpecialClassRanges(StandardCharacterSet type,
-                                                      Label* on_no_match) {
+bool RegExpMacroAssemblerPPC::CheckSpecialCharacterClass(
+    StandardCharacterSet type, Label* on_no_match) {
   // Range checks (c in min..max) are generally implemented by an unsigned
   // (c - min) <= (max - min) check
   // TODO(jgruber): No custom implementation (yet): s(UC16), S(UC16).
@@ -760,21 +760,21 @@ Handle<HeapObject> RegExpMacroAssemblerPPC::GetCode(Handle<String> source) {
     // from generated code.
     __ addi(frame_pointer(), sp, Operand(8 * kSystemPointerSize));
 
-    static_assert(kSuccessfulCaptures == kInputString - kSystemPointerSize);
+    STATIC_ASSERT(kSuccessfulCaptures == kInputString - kSystemPointerSize);
     __ li(r3, Operand::Zero());
     __ push(r3);  // Make room for success counter and initialize it to 0.
-    static_assert(kStringStartMinusOne ==
+    STATIC_ASSERT(kStringStartMinusOne ==
                   kSuccessfulCaptures - kSystemPointerSize);
     __ push(r3);  // Make room for "string start - 1" constant.
-    static_assert(kBacktrackCount == kStringStartMinusOne - kSystemPointerSize);
+    STATIC_ASSERT(kBacktrackCount == kStringStartMinusOne - kSystemPointerSize);
     __ push(r3);  // The backtrack counter.
-    static_assert(kRegExpStackBasePointer ==
+    STATIC_ASSERT(kRegExpStackBasePointer ==
                   kBacktrackCount - kSystemPointerSize);
     __ push(r3);  // The regexp stack base ptr.
 
     // Initialize backtrack stack pointer. It must not be clobbered from here
     // on. Note the backtrack_stackpointer is callee-saved.
-    static_assert(backtrack_stackpointer() == r29);
+    STATIC_ASSERT(backtrack_stackpointer() == r29);
     LoadRegExpStackPointerFromMemory(backtrack_stackpointer());
 
     // Store the regexp base pointer - we'll later restore it / write it to

@@ -236,7 +236,7 @@ static void GetInterfaceAddresses(const FunctionCallbackInfo<Value>& args) {
     result.emplace_back(family);
     result.emplace_back(FIXED_ONE_BYTE_STRING(isolate, mac));
     result.emplace_back(
-        interfaces[i].is_internal ? True(isolate) : False(isolate));
+        Boolean::New(env->isolate(), interfaces[i].is_internal));
 #ifndef __OS2__
     if (interfaces[i].address.address4.sin_family == AF_INET6) {
       uint32_t scopeid = interfaces[i].address.address6.sin6_scope_id;
@@ -386,6 +386,10 @@ static void GetPriority(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(priority);
 }
 
+static void GetAvailableParallelism(const FunctionCallbackInfo<Value>& args) {
+  unsigned int parallelism = uv_available_parallelism();
+  args.GetReturnValue().Set(parallelism);
+}
 
 void Initialize(Local<Object> target,
                 Local<Value> unused,
@@ -403,6 +407,8 @@ void Initialize(Local<Object> target,
   SetMethod(context, target, "getUserInfo", GetUserInfo);
   SetMethod(context, target, "setPriority", SetPriority);
   SetMethod(context, target, "getPriority", GetPriority);
+  SetMethod(
+      context, target, "getAvailableParallelism", GetAvailableParallelism);
   SetMethod(context, target, "getOSInformation", GetOSInformation);
   target
       ->Set(context,
@@ -423,6 +429,7 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(GetUserInfo);
   registry->Register(SetPriority);
   registry->Register(GetPriority);
+  registry->Register(GetAvailableParallelism);
   registry->Register(GetOSInformation);
 }
 

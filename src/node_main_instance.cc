@@ -76,13 +76,9 @@ NodeMainInstance::NodeMainInstance(const SnapshotData* snapshot_data,
                                              isolate_params_.get());
   }
 
-  isolate_ = Isolate::Allocate();
+  isolate_ = NewIsolate(
+      isolate_params_.get(), event_loop, platform, snapshot_data != nullptr);
   CHECK_NOT_NULL(isolate_);
-  // Register the isolate on the platform before the isolate gets initialized,
-  // so that the isolate can access the platform during initialization.
-  platform->RegisterIsolate(isolate_, event_loop);
-  SetIsolateCreateParamsForNode(isolate_params_.get());
-  Isolate::Initialize(isolate_, *isolate_params_);
 
   // If the indexes are not nullptr, we are not deserializing
   isolate_data_ = std::make_unique<IsolateData>(
@@ -91,13 +87,7 @@ NodeMainInstance::NodeMainInstance(const SnapshotData* snapshot_data,
       platform,
       array_buffer_allocator_.get(),
       snapshot_data == nullptr ? nullptr : &(snapshot_data->isolate_data_info));
-  IsolateSettings s;
-  SetIsolateMiscHandlers(isolate_, s);
-  if (snapshot_data == nullptr) {
-    // If in deserialize mode, delay until after the deserialization is
-    // complete.
-    SetIsolateErrorHandlers(isolate_, s);
-  }
+
   isolate_data_->max_young_gen_size =
       isolate_params_->constraints.max_young_generation_size_in_bytes();
 }
@@ -113,17 +103,33 @@ NodeMainInstance::~NodeMainInstance() {
   if (isolate_params_ == nullptr) {
     return;
   }
-  // This should only be done on a main instance that owns its isolate.
-  platform_->UnregisterIsolate(isolate_);
+
+  {
+#ifdef DEBUG
+    // node::Environment has been disposed and no JavaScript Execution is
+    // allowed at this point.
+    // Create a scope to check that no JavaScript is executed in debug build
+    // and proactively crash the process in the case JavaScript is being
+    // executed.
+    // Isolate::Dispose() must be invoked outside of this scope to avoid
+    // use-after-free.
+    Isolate::DisallowJavascriptExecutionScope disallow_js(
+        isolate_, Isolate::DisallowJavascriptExecutionScope::CRASH_ON_FAILURE);
+#endif
+    // This should only be done on a main instance that owns its isolate.
+    // IsolateData must be freed before UnregisterIsolate() is called.
+    isolate_data_.reset();
+    platform_->UnregisterIsolate(isolate_);
+  }
   isolate_->Dispose();
 }
 
-ExitCode NodeMainInstance::Run() {
+int NodeMainInstance::Run() {
   Locker locker(isolate_);
   Isolate::Scope isolate_scope(isolate_);
   HandleScope handle_scope(isolate_);
 
-  ExitCode exit_code = ExitCode::kNoFailure;
+  int exit_code = 0;
   DeleteFnPtr<Environment, FreeEnvironment> env =
       CreateMainEnvironment(&exit_code);
   CHECK_NOT_NULL(env);
@@ -133,12 +139,11 @@ ExitCode NodeMainInstance::Run() {
   return exit_code;
 }
 
-void NodeMainInstance::Run(ExitCode* exit_code, Environment* env) {
-  if (*exit_code == ExitCode::kNoFailure) {
+void NodeMainInstance::Run(int* exit_code, Environment* env) {
+  if (*exit_code == 0) {
     LoadEnvironment(env, StartExecutionCallback{});
 
-    *exit_code =
-        SpinEventLoopInternal(env).FromMaybe(ExitCode::kGenericUserError);
+    *exit_code = SpinEventLoop(env).FromMaybe(1);
   }
 
 #if defined(LEAK_SANITIZER)
@@ -147,8 +152,8 @@ void NodeMainInstance::Run(ExitCode* exit_code, Environment* env) {
 }
 
 DeleteFnPtr<Environment, FreeEnvironment>
-NodeMainInstance::CreateMainEnvironment(ExitCode* exit_code) {
-  *exit_code = ExitCode::kNoFailure;  // Reset the exit code to 0
+NodeMainInstance::CreateMainEnvironment(int* exit_code) {
+  *exit_code = 0;  // Reset the exit code to 0
 
   HandleScope handle_scope(isolate_);
 
@@ -169,6 +174,11 @@ NodeMainInstance::CreateMainEnvironment(ExitCode* exit_code) {
                               &(snapshot_data_->env_info),
                               EnvironmentFlags::kDefaultFlags,
                               {}));
+#ifdef NODE_V8_SHARED_RO_HEAP
+    // TODO(addaleax): Do this as part of creating the Environment
+    // once we store the SnapshotData* itself on IsolateData.
+    env->builtin_loader()->RefreshCodeCache(snapshot_data_->code_cache);
+#endif
     context = Context::FromSnapshot(isolate_,
                                     SnapshotData::kNodeMainContextIndex,
                                     {DeserializeNodeInternalFields, env.get()})
@@ -191,19 +201,8 @@ NodeMainInstance::CreateMainEnvironment(ExitCode* exit_code) {
     context = NewContext(isolate_);
     CHECK(!context.IsEmpty());
     Context::Scope context_scope(context);
-    env.reset(new Environment(isolate_data_.get(),
-                              context,
-                              args_,
-                              exec_args_,
-                              nullptr,
-                              EnvironmentFlags::kDefaultFlags,
-                              {}));
-#if HAVE_INSPECTOR
-    env->InitializeInspector({});
-#endif
-    if (env->principal_realm()->RunBootstrapping().IsEmpty()) {
-      return nullptr;
-    }
+    env.reset(
+        CreateEnvironment(isolate_data_.get(), context, args_, exec_args_));
   }
 
   return env;

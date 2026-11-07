@@ -18,8 +18,7 @@ namespace internal {
   VISIT(Disjunction)                      \
   VISIT(Alternative)                      \
   VISIT(Assertion)                        \
-  VISIT(ClassRanges)                      \
-  VISIT(ClassSetExpression)               \
+  VISIT(CharacterClass)                   \
   VISIT(Atom)                             \
   VISIT(Quantifier)                       \
   VISIT(Capture)                          \
@@ -118,49 +117,29 @@ class CharacterRange {
       StandardCharacterSet standard_character_set,
       ZoneList<CharacterRange>* ranges, bool add_unicode_case_equivalents,
       Zone* zone);
-  // Add case equivalents to ranges. Only used for /i, not for /ui or /vi, as
-  // the semantics for unicode mode are slightly different.
-  // See https://tc39.es/ecma262/#sec-runtime-semantics-canonicalize-ch Note 4.
   V8_EXPORT_PRIVATE static void AddCaseEquivalents(
       Isolate* isolate, Zone* zone, ZoneList<CharacterRange>* ranges,
       bool is_one_byte);
-  // Add case equivalent code points to ranges. Only used for /ui and /vi, not
-  // for /i, as the semantics for non-unicode mode are slightly different.
-  // See https://tc39.es/ecma262/#sec-runtime-semantics-canonicalize-ch Note 4.
-  static void AddUnicodeCaseEquivalents(ZoneList<CharacterRange>* ranges,
-                                        Zone* zone);
 
   bool Contains(base::uc32 i) const { return from_ <= i && i <= to_; }
   base::uc32 from() const { return from_; }
   base::uc32 to() const { return to_; }
   bool IsEverything(base::uc32 max) const { return from_ == 0 && to_ >= max; }
   bool IsSingleton() const { return from_ == to_; }
-
   // Whether a range list is in canonical form: Ranges ordered by from value,
   // and ranges non-overlapping and non-adjacent.
-  V8_EXPORT_PRIVATE static bool IsCanonical(
-      const ZoneList<CharacterRange>* ranges);
+  V8_EXPORT_PRIVATE static bool IsCanonical(ZoneList<CharacterRange>* ranges);
   // Convert range list to canonical form. The characters covered by the ranges
   // will still be the same, but no character is in more than one range, and
   // adjacent ranges are merged. The resulting list may be shorter than the
   // original, but cannot be longer.
   static void Canonicalize(ZoneList<CharacterRange>* ranges);
   // Negate the contents of a character range in canonical form.
-  static void Negate(const ZoneList<CharacterRange>* src,
+  static void Negate(ZoneList<CharacterRange>* src,
                      ZoneList<CharacterRange>* dst, Zone* zone);
-  // Intersect the contents of two character ranges in canonical form.
-  static void Intersect(const ZoneList<CharacterRange>* lhs,
-                        const ZoneList<CharacterRange>* rhs,
-                        ZoneList<CharacterRange>* dst, Zone* zone);
-  // Subtract the contents of |to_remove| from the contents of |src|.
-  static void Subtract(const ZoneList<CharacterRange>* src,
-                       const ZoneList<CharacterRange>* to_remove,
-                       ZoneList<CharacterRange>* dst, Zone* zone);
+
   // Remove all ranges outside the one-byte range.
   static void ClampToOneByte(ZoneList<CharacterRange>* ranges);
-  // Checks if two ranges (both need to be canonical) are equal.
-  static bool Equals(const ZoneList<CharacterRange>* lhs,
-                     const ZoneList<CharacterRange>* rhs);
 
  private:
   CharacterRange(base::uc32 from, base::uc32 to) : from_(from), to_(to) {}
@@ -170,13 +149,6 @@ class CharacterRange {
   base::uc32 from_ = 0;
   base::uc32 to_ = 0;
 };
-
-inline bool operator==(const CharacterRange& lhs, const CharacterRange& rhs) {
-  return lhs.from() == rhs.from() && lhs.to() == rhs.to();
-}
-inline bool operator!=(const CharacterRange& lhs, const CharacterRange& rhs) {
-  return !operator==(lhs, rhs);
-}
 
 #define DECL_BOILERPLATE(Name)                                         \
   void* Accept(RegExpVisitor* visitor, void* data) override;           \
@@ -299,7 +271,7 @@ class CharacterSet final {
   base::Optional<StandardCharacterSet> standard_set_type_;
 };
 
-class RegExpClassRanges final : public RegExpTree {
+class RegExpCharacterClass final : public RegExpTree {
  public:
   // NEGATED: The character class is negated and should match everything but
   //     the specified ranges.
@@ -309,21 +281,22 @@ class RegExpClassRanges final : public RegExpTree {
     NEGATED = 1 << 0,
     CONTAINS_SPLIT_SURROGATE = 1 << 1,
   };
-  using ClassRangesFlags = base::Flags<Flag>;
+  using CharacterClassFlags = base::Flags<Flag>;
 
-  RegExpClassRanges(Zone* zone, ZoneList<CharacterRange>* ranges,
-                    ClassRangesFlags class_ranges_flags = ClassRangesFlags())
-      : set_(ranges), class_ranges_flags_(class_ranges_flags) {
+  RegExpCharacterClass(
+      Zone* zone, ZoneList<CharacterRange>* ranges,
+      CharacterClassFlags character_class_flags = CharacterClassFlags())
+      : set_(ranges), character_class_flags_(character_class_flags) {
     // Convert the empty set of ranges to the negated Everything() range.
     if (ranges->is_empty()) {
       ranges->Add(CharacterRange::Everything(), zone);
-      class_ranges_flags_ ^= NEGATED;
+      character_class_flags_ ^= NEGATED;
     }
   }
-  explicit RegExpClassRanges(StandardCharacterSet standard_set_type)
-      : set_(standard_set_type), class_ranges_flags_() {}
+  explicit RegExpCharacterClass(StandardCharacterSet standard_set_type)
+      : set_(standard_set_type), character_class_flags_() {}
 
-  DECL_BOILERPLATE(ClassRanges);
+  DECL_BOILERPLATE(CharacterClass);
 
   bool IsTextElement() override { return true; }
   int min_match() override { return 1; }
@@ -346,55 +319,14 @@ class RegExpClassRanges final : public RegExpTree {
   CharacterSet character_set() const { return set_; }
   ZoneList<CharacterRange>* ranges(Zone* zone) { return set_.ranges(zone); }
 
-  bool is_negated() const { return (class_ranges_flags_ & NEGATED) != 0; }
+  bool is_negated() const { return (character_class_flags_ & NEGATED) != 0; }
   bool contains_split_surrogate() const {
-    return (class_ranges_flags_ & CONTAINS_SPLIT_SURROGATE) != 0;
+    return (character_class_flags_ & CONTAINS_SPLIT_SURROGATE) != 0;
   }
 
  private:
   CharacterSet set_;
-  ClassRangesFlags class_ranges_flags_;
-};
-
-class RegExpClassSetExpression final : public RegExpTree {
- public:
-  enum class OperationType { kUnion, kIntersection, kSubtraction };
-
-  RegExpClassSetExpression(OperationType op, bool is_negated,
-                           ZoneList<RegExpTree*>* operands)
-      : operation_(op), is_negated_(is_negated), operands_(operands) {}
-
-  DECL_BOILERPLATE(ClassSetExpression);
-
-  bool IsTextElement() override { return true; }
-  // At least 1 character is consumed.
-  int min_match() override { return 1; }
-  // Up to two code points might be consumed.
-  int max_match() override { return 2; }
-
-  OperationType operation() const { return operation_; }
-  bool is_negated() const { return is_negated_; }
-  const ZoneList<RegExpTree*>* operands() const { return operands_; }
-
- private:
-  RegExpClassRanges* ToCharacterClass(Zone* zone);
-
-  // Recursively evaluates the tree rooted at |root|, computing the valid
-  // CharacterRanges after applying all set operations and storing the result in
-  // |result_ranges|. |temp_ranges| is list used for intermediate results,
-  // passed as parameter to avoid allocating new lists all the time.
-  static void ComputeCharacterRanges(RegExpTree* root,
-                                     ZoneList<CharacterRange>* result_ranges,
-                                     ZoneList<CharacterRange>* temp_ranges,
-                                     Zone* zone);
-
-  const OperationType operation_;
-  const bool is_negated_;
-  ZoneList<RegExpTree*>* operands_ = nullptr;
-#ifdef ENABLE_SLOW_DCHECKS
-  // Cache ranges for each node during computation for (slow) DCHECKs.
-  ZoneList<CharacterRange>* ranges_ = nullptr;
-#endif
+  CharacterClassFlags character_class_flags_;
 };
 
 class RegExpAtom final : public RegExpTree {
@@ -417,10 +349,10 @@ class RegExpAtom final : public RegExpTree {
 
 class TextElement final {
  public:
-  enum TextType { ATOM, CLASS_RANGES };
+  enum TextType { ATOM, CHAR_CLASS };
 
   static TextElement Atom(RegExpAtom* atom);
-  static TextElement ClassRanges(RegExpClassRanges* class_ranges);
+  static TextElement CharClass(RegExpCharacterClass* char_class);
 
   int cp_offset() const { return cp_offset_; }
   void set_cp_offset(int cp_offset) { cp_offset_ = cp_offset; }
@@ -435,9 +367,9 @@ class TextElement final {
     return reinterpret_cast<RegExpAtom*>(tree());
   }
 
-  RegExpClassRanges* class_ranges() const {
-    DCHECK(text_type() == CLASS_RANGES);
-    return reinterpret_cast<RegExpClassRanges*>(tree());
+  RegExpCharacterClass* char_class() const {
+    DCHECK(text_type() == CHAR_CLASS);
+    return reinterpret_cast<RegExpCharacterClass*>(tree());
   }
 
  private:

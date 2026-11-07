@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2022 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2020-2023 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -238,7 +238,7 @@ static void *file_open(void *provctx, const char *uri)
 #ifdef _WIN32
         /* Windows file: URIs with a drive letter start with a / */
         if (p[0] == '/' && p[2] == ':' && p[3] == '/') {
-            char c = tolower(p[1]);
+            char c = tolower((unsigned char)p[1]);
 
             if (c >= 'a' && c <= 'z') {
                 p++;
@@ -612,9 +612,9 @@ static int file_name_check(struct file_ctx_st *ctx, const char *name)
      * Last, check that the rest of the extension is a decimal number, at
      * least one digit long.
      */
-    if (!isdigit(*p))
+    if (!isdigit((unsigned char)*p))
         return 0;
-    while (isdigit(*p))
+    while (isdigit((unsigned char)*p))
         p++;
 
 #ifdef __VMS
@@ -623,7 +623,7 @@ static int file_name_check(struct file_ctx_st *ctx, const char *name)
      */
     if (*p == ';')
         for (p++; *p != '\0'; p++)
-            if (!ossl_isdigit(*p))
+            if (!ossl_isdigit((unsigned char)*p))
                 break;
 #endif
 

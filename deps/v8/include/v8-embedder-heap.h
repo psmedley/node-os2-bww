@@ -69,12 +69,7 @@ class V8_EXPORT EmbedderRootsHandler {
  * trace through its heap and use reporter to report each JavaScript object
  * reachable from any of the given wrappers.
  */
-class V8_EXPORT
-// GCC doesn't like combining __attribute__(()) with [[deprecated]].
-#ifdef __clang__
-V8_DEPRECATE_SOON("Use CppHeap when working with v8::TracedReference.")
-#endif  // __clang__
-    EmbedderHeapTracer {
+class V8_EXPORT EmbedderHeapTracer {
  public:
   using EmbedderStackState = cppgc::EmbedderStackState;
 
@@ -210,10 +205,10 @@ V8_DEPRECATE_SOON("Use CppHeap when working with v8::TracedReference.")
    * Returns the v8::Isolate this tracer is attached too and |nullptr| if it
    * is not attached to any v8::Isolate.
    */
-  v8::Isolate* isolate() const { return v8_isolate_; }
+  v8::Isolate* isolate() const { return isolate_; }
 
  protected:
-  v8::Isolate* v8_isolate_ = nullptr;
+  v8::Isolate* isolate_ = nullptr;
 
   friend class internal::LocalEmbedderHeapTracer;
 };

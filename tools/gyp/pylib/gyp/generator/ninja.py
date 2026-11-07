@@ -1464,7 +1464,7 @@ class NinjaWriter:
             # Respect environment variables related to build, but target-specific
             # flags can still override them.
             ldflags = env_ldflags + config.get("ldflags", [])
-            if is_executable and len(solibs):
+            if is_executable and len(solibs) and self.flavor != "os2":
                 rpath = "lib/"
                 if self.toolset != "target":
                     rpath += self.toolset
@@ -1583,7 +1583,7 @@ class NinjaWriter:
         elif spec["type"] == "static_library":
             self.target.binary = self.ComputeOutput(spec)
             if (
-                self.flavor not in ("mac", "openbsd", "netbsd", "win")
+                self.flavor not in ("ios", "mac", "netbsd", "openbsd", "win")
                 and not self.is_standalone_static_library
             ):
                 self.ninja.build(
@@ -1815,10 +1815,7 @@ class NinjaWriter:
             "executable": default_variables["EXECUTABLE_SUFFIX"],
         }
         extension = spec.get("product_extension")
-        if extension:
-            extension = "." + extension
-        else:
-            extension = DEFAULT_EXTENSION.get(type, "")
+        extension = "." + extension if extension else DEFAULT_EXTENSION.get(type, "")
 
         if "product_name" in spec:
             # If we were given an explicit name, use that.
@@ -2037,7 +2034,11 @@ def CalculateVariables(default_variables, params):
         if flavor == "android":
             operating_system = "linux"  # Keep this legacy behavior for now.
         default_variables.setdefault("OS", operating_system)
-        default_variables.setdefault("SHARED_LIB_SUFFIX", ".so")
+        if flavor == "os2":
+            default_variables.setdefault("SHARED_LIB_SUFFIX", ".dll")
+            default_variables["EXECUTABLE_SUFFIX"] = ".exe"
+        else:
+            default_variables.setdefault("SHARED_LIB_SUFFIX", ".so")
         default_variables.setdefault(
             "SHARED_LIB_DIR", os.path.join("$!PRODUCT_DIR", "lib")
         )
@@ -2496,7 +2497,47 @@ def GenerateOutputForConfig(target_list, target_dicts, data, params, config_name
             ),
         )
 
-    if flavor != "mac" and flavor != "win":
+    if flavor == "os2":
+        # OS/2 uses a.out/OMF tools: no thin archives, no --start-group,
+        # no -soname/--whole-archive and no readelf.
+        master_ninja.rule(
+            "alink",
+            description="AR $out",
+            command="rm -f $out && $ar rcs $arflags $out $in",
+        )
+        master_ninja.rule(
+            "alink_thin",
+            description="AR $out",
+            command="rm -f $out && $ar rcs $arflags $out $in",
+        )
+        master_ninja.rule(
+            "solink",
+            description="SOLINK $lib",
+            restat=True,
+            command="$ld -Zdll -Zomf $ldflags -o $lib @$link_file_list && touch $lib.TOC",
+            rspfile="$link_file_list",
+            rspfile_content="$in $solibs $libs -lstdc++ -lpthread -lcx",
+            pool="link_pool",
+        )
+        master_ninja.rule(
+            "solink_module",
+            description="SOLINK(module) $lib",
+            restat=True,
+            command="$ld -Zdll -Zomf $ldflags -o $lib @$link_file_list && touch $lib.TOC",
+            rspfile="$link_file_list",
+            rspfile_content="$in $solibs $libs -lstdc++ -lpthread -lcx",
+            pool="link_pool",
+        )
+        master_ninja.rule(
+            "link",
+            description="LINK $out",
+            command=(
+                "$ld -Zomf -Zmap $ldflags -o $out "
+                "$in $solibs $libs -lstdc++ -lpthread -lcx"
+            ),
+            pool="link_pool",
+        )
+    elif flavor not in ("ios", "mac", "win"):
         master_ninja.rule(
             "alink",
             description="AR $out",
@@ -2533,7 +2574,7 @@ def GenerateOutputForConfig(target_list, target_dicts, data, params, config_name
             description="SOLINK $lib",
             restat=True,
             command=mtime_preserving_solink_base
-            % {"suffix": "@$link_file_list"},  # noqa: E501
+            % {"suffix": "@$link_file_list"},
             rspfile="$link_file_list",
             rspfile_content=(
                 "-Wl,--whole-archive $in $solibs -Wl," "--no-whole-archive $libs"

@@ -26,8 +26,8 @@ class MaglevVregAllocationState {
 
 class MaglevVregAllocator {
  public:
-  void PreProcessGraph(Graph* graph) {}
-  void PostProcessGraph(Graph* graph) {
+  void PreProcessGraph(MaglevCompilationUnit*, Graph* graph) {}
+  void PostProcessGraph(MaglevCompilationUnit*, Graph* graph) {
     for (BasicBlock* block : *graph) {
       if (!block->has_phi()) continue;
       for (Phi* phi : *block->phis()) {
@@ -35,11 +35,11 @@ class MaglevVregAllocator {
       }
     }
   }
-  void PreProcessBasicBlock(BasicBlock* block) {}
+  void PreProcessBasicBlock(MaglevCompilationUnit*, BasicBlock* block) {}
 
 #define DEF_PROCESS_NODE(NAME)                             \
   void Process(NAME* node, const ProcessingState& state) { \
-    node->AllocateVreg(&state_);                           \
+    node->AllocateVreg(&state_, state);                    \
   }
   NODE_BASE_LIST(DEF_PROCESS_NODE)
 #undef DEF_PROCESS_NODE

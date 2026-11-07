@@ -212,7 +212,7 @@ void RegExpMacroAssemblerX64::CheckGreedyLoop(Label* on_equal) {
   __ cmpl(rdi, Operand(backtrack_stackpointer(), 0));
   __ j(not_equal, &fallthrough);
   Drop();
-  BranchOrBacktrack(on_equal);
+  BranchOrBacktrack(no_condition, on_equal);
   __ bind(&fallthrough);
 }
 
@@ -578,8 +578,8 @@ void RegExpMacroAssemblerX64::CheckBitInTable(
   BranchOrBacktrack(not_equal, on_bit_set);
 }
 
-bool RegExpMacroAssemblerX64::CheckSpecialClassRanges(StandardCharacterSet type,
-                                                      Label* on_no_match) {
+bool RegExpMacroAssemblerX64::CheckSpecialCharacterClass(
+    StandardCharacterSet type, Label* on_no_match) {
   // Range checks (c in min..max) are generally implemented by an unsigned
   // (c - min) <= (max - min) check, using the sequence:
   //   leal(rax, Operand(current_character(), -min)) or sub(rax, Immediate(min))
@@ -699,7 +699,7 @@ bool RegExpMacroAssemblerX64::CheckSpecialClassRanges(StandardCharacterSet type,
 }
 
 void RegExpMacroAssemblerX64::Fail() {
-  static_assert(FAILURE == 0);  // Return value for failure is zero.
+  STATIC_ASSERT(FAILURE == 0);  // Return value for failure is zero.
   if (!global()) {
     __ Move(rax, FAILURE);
   }
@@ -763,7 +763,7 @@ Handle<HeapObject> RegExpMacroAssemblerX64::GetCode(Handle<String> source) {
   __ movq(Operand(rbp, kInputStart), arg_reg_3);
   __ movq(Operand(rbp, kInputEnd), arg_reg_4);
 
-  static_assert(kNumCalleeSaveRegisters == 3);
+  STATIC_ASSERT(kNumCalleeSaveRegisters == 3);
   __ pushq(rsi);
   __ pushq(rdi);
   __ pushq(rbx);
@@ -783,25 +783,25 @@ Handle<HeapObject> RegExpMacroAssemblerX64::GetCode(Handle<String> source) {
   __ pushq(r8);
   __ pushq(r9);
 
-  static_assert(kNumCalleeSaveRegisters == 1);
+  STATIC_ASSERT(kNumCalleeSaveRegisters == 1);
   __ pushq(rbx);
 #endif
 
-  static_assert(kSuccessfulCaptures ==
+  STATIC_ASSERT(kSuccessfulCaptures ==
                 kLastCalleeSaveRegister - kSystemPointerSize);
   __ Push(Immediate(0));  // Number of successful matches in a global regexp.
-  static_assert(kStringStartMinusOne ==
+  STATIC_ASSERT(kStringStartMinusOne ==
                 kSuccessfulCaptures - kSystemPointerSize);
   __ Push(Immediate(0));  // Make room for "string start - 1" constant.
-  static_assert(kBacktrackCount == kStringStartMinusOne - kSystemPointerSize);
+  STATIC_ASSERT(kBacktrackCount == kStringStartMinusOne - kSystemPointerSize);
   __ Push(Immediate(0));  // The backtrack counter.
-  static_assert(kRegExpStackBasePointer ==
+  STATIC_ASSERT(kRegExpStackBasePointer ==
                 kBacktrackCount - kSystemPointerSize);
   __ Push(Immediate(0));  // The regexp stack base ptr.
 
   // Initialize backtrack stack pointer. It must not be clobbered from here on.
   // Note the backtrack_stackpointer is *not* callee-saved.
-  static_assert(backtrack_stackpointer() == rcx);
+  STATIC_ASSERT(backtrack_stackpointer() == rcx);
   LoadRegExpStackPointerFromMemory(backtrack_stackpointer());
 
   // Store the regexp base pointer - we'll later restore it / write it to
@@ -998,14 +998,14 @@ Handle<HeapObject> RegExpMacroAssemblerX64::GetCode(Handle<String> source) {
 #ifdef V8_TARGET_OS_WIN
   // Restore callee save registers.
   __ leaq(rsp, Operand(rbp, kLastCalleeSaveRegister));
-  static_assert(kNumCalleeSaveRegisters == 3);
+  STATIC_ASSERT(kNumCalleeSaveRegisters == 3);
   __ popq(rbx);
   __ popq(rdi);
   __ popq(rsi);
   // Stack now at rbp.
 #else
   // Restore callee save register.
-  static_assert(kNumCalleeSaveRegisters == 1);
+  STATIC_ASSERT(kNumCalleeSaveRegisters == 1);
   __ movq(rbx, Operand(rbp, kBackup_rbx));
   // Skip rsp to rbp.
   __ movq(rsp, rbp);
@@ -1104,7 +1104,11 @@ Handle<HeapObject> RegExpMacroAssemblerX64::GetCode(Handle<String> source) {
   return Handle<HeapObject>::cast(code);
 }
 
-void RegExpMacroAssemblerX64::GoTo(Label* to) { BranchOrBacktrack(to); }
+
+void RegExpMacroAssemblerX64::GoTo(Label* to) {
+  BranchOrBacktrack(no_condition, to);
+}
+
 
 void RegExpMacroAssemblerX64::IfRegisterGE(int reg,
                                            int comparand,
@@ -1314,18 +1318,24 @@ void RegExpMacroAssemblerX64::CheckPosition(int cp_offset,
   }
 }
 
-void RegExpMacroAssemblerX64::BranchOrBacktrack(Label* to) {
-  if (to == nullptr) {
-    Backtrack();
-    return;
-  }
-  __ jmp(to);
-}
 
 void RegExpMacroAssemblerX64::BranchOrBacktrack(Condition condition,
                                                 Label* to) {
-  __ j(condition, to ? to : &backtrack_label_);
+  if (condition < 0) {  // No condition
+    if (to == nullptr) {
+      Backtrack();
+      return;
+    }
+    __ jmp(to);
+    return;
+  }
+  if (to == nullptr) {
+    __ j(condition, &backtrack_label_);
+    return;
+  }
+  __ j(condition, to);
 }
+
 
 void RegExpMacroAssemblerX64::SafeCall(Label* to) {
   __ call(to);

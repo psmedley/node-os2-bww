@@ -55,8 +55,8 @@ std::ostream& operator<<(std::ostream& os, FrameStateType type) {
     case FrameStateType::kUnoptimizedFunction:
       os << "UNOPTIMIZED_FRAME";
       break;
-    case FrameStateType::kInlinedExtraArguments:
-      os << "INLINED_EXTRA_ARGUMENTS";
+    case FrameStateType::kArgumentsAdaptor:
+      os << "ARGUMENTS_ADAPTOR";
       break;
     case FrameStateType::kConstructStub:
       os << "CONSTRUCT_STUB";

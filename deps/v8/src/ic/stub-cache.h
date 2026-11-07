@@ -5,7 +5,6 @@
 #ifndef V8_IC_STUB_CACHE_H_
 #define V8_IC_STUB_CACHE_H_
 
-#include "include/v8-callbacks.h"
 #include "src/objects/name.h"
 #include "src/objects/tagged-value.h"
 
@@ -16,6 +15,7 @@ namespace internal {
 // It maps (map, name, type) to property access handlers. The cache does not
 // need explicit invalidation when a prototype chain is modified, since the
 // handlers verify the chain.
+
 
 class SCTableReference {
  public:
@@ -82,7 +82,7 @@ class V8_EXPORT_PRIVATE StubCache {
   // causes the bit field inside the hash field to get shifted out implicitly.
   // Note that kCacheIndexShift must not get too large, because
   // sizeof(Entry) needs to be a multiple of 1 << kCacheIndexShift (see
-  // the static_assert below, in {entry(...)}).
+  // the STATIC_ASSERT below, in {entry(...)}).
   static const int kCacheIndexShift = Name::HashBits::kShift;
 
   static const int kPrimaryTableBits = 11;
@@ -98,12 +98,8 @@ class V8_EXPORT_PRIVATE StubCache {
   static int PrimaryOffsetForTesting(Name name, Map map);
   static int SecondaryOffsetForTesting(Name name, Map map);
 
-  static void ClearCallback(v8::Isolate* isolate, v8::GCType type,
-                            v8::GCCallbackFlags flags, void* data);
-
   // The constructor is made public only for the purposes of testing.
   explicit StubCache(Isolate* isolate);
-  ~StubCache();
   StubCache(const StubCache&) = delete;
   StubCache& operator=(const StubCache&) = delete;
 
@@ -132,7 +128,7 @@ class V8_EXPORT_PRIVATE StubCache {
   // in the hashed offset computations.
   static Entry* entry(Entry* table, int offset) {
     // The size of {Entry} must be a multiple of 1 << kCacheIndexShift.
-    static_assert((sizeof(*table) >> kCacheIndexShift) << kCacheIndexShift ==
+    STATIC_ASSERT((sizeof(*table) >> kCacheIndexShift) << kCacheIndexShift ==
                   sizeof(*table));
     const int multiplier = sizeof(*table) >> kCacheIndexShift;
     return reinterpret_cast<Entry*>(reinterpret_cast<Address>(table) +

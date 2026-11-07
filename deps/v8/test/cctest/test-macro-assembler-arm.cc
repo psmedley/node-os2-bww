@@ -31,6 +31,7 @@
 #include "src/codegen/macro-assembler.h"
 #include "src/deoptimizer/deoptimizer.h"
 #include "src/execution/simulator.h"
+#include "src/init/v8.h"
 #include "src/objects/objects-inl.h"
 #include "src/utils/ostreams.h"
 #include "test/cctest/cctest.h"
@@ -316,7 +317,7 @@ TEST(DeoptExitSizeIsFixed) {
   MacroAssembler masm(isolate, v8::internal::CodeObjectRequired::kYes,
                       buffer->CreateView());
 
-  static_assert(static_cast<int>(kFirstDeoptimizeKind) == 0);
+  STATIC_ASSERT(static_cast<int>(kFirstDeoptimizeKind) == 0);
   for (int i = 0; i < kDeoptimizeKindCount; i++) {
     DeoptimizeKind kind = static_cast<DeoptimizeKind>(i);
     Label before_exit;

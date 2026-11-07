@@ -19,28 +19,12 @@ class InnerPointerToCodeCache {
  public:
   struct InnerPointerToCodeCacheEntry {
     Address inner_pointer;
-    CodeLookupResult code;
-    union {
-      SafepointEntry safepoint_entry;
-      MaglevSafepointEntry maglev_safepoint_entry;
-    };
-    InnerPointerToCodeCacheEntry() : safepoint_entry() {}
+    Code code;
+    SafepointEntry safepoint_entry;
   };
-
-  static void FlushCallback(LocalIsolate*, GCType, GCCallbackFlags,
-                            void* data) {
-    static_cast<InnerPointerToCodeCache*>(data)->Flush();
-  }
 
   explicit InnerPointerToCodeCache(Isolate* isolate) : isolate_(isolate) {
     Flush();
-    isolate_->main_thread_local_heap()->AddGCEpilogueCallback(
-        FlushCallback, this, GCType::kGCTypeMarkSweepCompact);
-  }
-
-  ~InnerPointerToCodeCache() {
-    isolate_->main_thread_local_heap()->RemoveGCEpilogueCallback(FlushCallback,
-                                                                 this);
   }
 
   InnerPointerToCodeCache(const InnerPointerToCodeCache&) = delete;
@@ -220,10 +204,6 @@ inline Object JavaScriptFrame::function_slot_object() const {
   return Object(base::Memory<Address>(fp() + offset));
 }
 
-inline TurbofanStubWithContextFrame::TurbofanStubWithContextFrame(
-    StackFrameIteratorBase* iterator)
-    : CommonFrame(iterator) {}
-
 inline StubFrame::StubFrame(StackFrameIteratorBase* iterator)
     : TypedFrame(iterator) {}
 
@@ -238,12 +218,6 @@ inline InterpretedFrame::InterpretedFrame(StackFrameIteratorBase* iterator)
 
 inline BaselineFrame::BaselineFrame(StackFrameIteratorBase* iterator)
     : UnoptimizedFrame(iterator) {}
-
-inline MaglevFrame::MaglevFrame(StackFrameIteratorBase* iterator)
-    : OptimizedFrame(iterator) {}
-
-inline TurbofanFrame::TurbofanFrame(StackFrameIteratorBase* iterator)
-    : OptimizedFrame(iterator) {}
 
 inline BuiltinFrame::BuiltinFrame(StackFrameIteratorBase* iterator)
     : TypedFrameWithJSLinkage(iterator) {}
@@ -260,11 +234,7 @@ inline WasmDebugBreakFrame::WasmDebugBreakFrame(
     : TypedFrame(iterator) {}
 
 inline WasmToJsFrame::WasmToJsFrame(StackFrameIteratorBase* iterator)
-    : WasmFrame(iterator) {}
-
-inline WasmToJsFunctionFrame::WasmToJsFunctionFrame(
-    StackFrameIteratorBase* iterator)
-    : TypedFrame(iterator) {}
+    : StubFrame(iterator) {}
 
 inline JsToWasmFrame::JsToWasmFrame(StackFrameIteratorBase* iterator)
     : StubFrame(iterator) {}

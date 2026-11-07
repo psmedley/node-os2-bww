@@ -1,5 +1,5 @@
 #include "node_perf.h"
-#include "aliased_buffer.h"
+#include "aliased_buffer-inl.h"
 #include "env-inl.h"
 #include "histogram-inl.h"
 #include "memory_tracker-inl.h"
@@ -35,9 +35,11 @@ using v8::Value;
 
 // Microseconds in a millisecond, as a float.
 #define MICROS_PER_MILLIS 1e3
-// Nanoseconds in a millisecond, as a float.
-#define NANOS_PER_MILLIS 1e6
 
+// https://w3c.github.io/hr-time/#dfn-time-origin
+const uint64_t timeOrigin = PERFORMANCE_NOW();
+// https://w3c.github.io/hr-time/#dfn-time-origin-timestamp
+const double timeOriginTimestamp = GetCurrentTimeInMicroseconds();
 uint64_t performance_v8_start;
 
 PerformanceState::PerformanceState(Isolate* isolate,
@@ -168,10 +170,9 @@ void MarkGarbageCollectionEnd(
     return;
 
   double start_time =
-      (state->performance_last_gc_start_mark - env->time_origin()) /
-      NANOS_PER_MILLIS;
-  double duration = (PERFORMANCE_NOW() / NANOS_PER_MILLIS) -
-                    (state->performance_last_gc_start_mark / NANOS_PER_MILLIS);
+      (state->performance_last_gc_start_mark - timeOrigin) / 1e6;
+  double duration =
+      (PERFORMANCE_NOW() / 1e6) - (state->performance_last_gc_start_mark / 1e6);
 
   std::unique_ptr<GCPerformanceEntry> entry =
       std::make_unique<GCPerformanceEntry>(
@@ -212,18 +213,6 @@ static void RemoveGarbageCollectionTracking(
 
   env->RemoveCleanupHook(GarbageCollectionCleanupHook, env);
   GarbageCollectionCleanupHook(env);
-}
-
-// Gets the name of a function
-inline Local<Value> GetName(Local<Function> fn) {
-  Local<Value> val = fn->GetDebugName();
-  if (val.IsEmpty() || val->IsUndefined()) {
-    Local<Value> boundFunction = fn->GetBoundFunction();
-    if (!boundFunction.IsEmpty() && !boundFunction->IsUndefined()) {
-      val = GetName(boundFunction.As<Function>());
-    }
-  }
-  return val;
 }
 
 // Notify a custom PerformanceEntry to observers
@@ -269,15 +258,12 @@ void CreateELDHistogram(const FunctionCallbackInfo<Value>& args) {
 }
 
 void GetTimeOrigin(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-  args.GetReturnValue().Set(
-      Number::New(args.GetIsolate(), env->time_origin() / 1e6));
+  args.GetReturnValue().Set(Number::New(args.GetIsolate(), timeOrigin / 1e6));
 }
 
 void GetTimeOriginTimeStamp(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-  args.GetReturnValue().Set(Number::New(
-      args.GetIsolate(), env->time_origin_timestamp() / MICROS_PER_MILLIS));
+  args.GetReturnValue().Set(
+      Number::New(args.GetIsolate(), timeOriginTimestamp / MICROS_PER_MILLIS));
 }
 
 void MarkBootstrapComplete(const FunctionCallbackInfo<Value>& args) {

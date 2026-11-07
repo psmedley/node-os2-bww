@@ -5,7 +5,8 @@
 import {App} from '../index.mjs'
 
 import {FocusEvent, ToolTipEvent} from './events.mjs';
-import {CollapsableElement, DOM, groupBy, LazyTable} from './helper.mjs';
+import {groupBy, LazyTable} from './helper.mjs';
+import {CollapsableElement, DOM} from './helper.mjs';
 
 DOM.defineCustomElement('view/list-panel',
                         (templateText) =>

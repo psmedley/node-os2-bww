@@ -11,10 +11,11 @@
 #include "src/compiler/js-graph.h"
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/simplified-operator.h"
+#include "src/execution/isolate-inl.h"
+#include "src/objects/field-index-inl.h"
 #include "src/objects/heap-number.h"
 #include "src/objects/internal-index.h"
-#include "src/objects/js-function.h"
-#include "src/objects/map-inl.h"
+#include "src/objects/lookup.h"
 #include "src/objects/property-details.h"
 
 namespace v8 {
@@ -236,7 +237,6 @@ Node* PropertyAccessBuilder::BuildLoadDataField(NameRef const& name,
                                           Type::Any(),
                                           MachineType::AnyTagged(),
                                           kPointerWriteBarrier,
-                                          "BuildLoadDataField",
                                           field_access.const_field_info};
       storage = *effect = graph()->NewNode(
           simplified()->LoadField(storage_access), storage, *effect, *control);
@@ -264,7 +264,6 @@ Node* PropertyAccessBuilder::BuildLoadDataField(NameRef const& name,
                                           Type::OtherInternal(),
                                           MachineType::TaggedPointer(),
                                           kPointerWriteBarrier,
-                                          "BuildLoadDataField",
                                           field_access.const_field_info};
       storage = *effect = graph()->NewNode(
           simplified()->LoadField(storage_access), storage, *effect, *control);
@@ -299,7 +298,6 @@ Node* PropertyAccessBuilder::BuildLoadDataField(
       access_info.field_type(),
       MachineType::TypeForRepresentation(field_representation),
       kFullWriteBarrier,
-      "BuildLoadDataField",
       access_info.GetConstFieldInfo()};
   if (field_representation == MachineRepresentation::kTaggedPointer ||
       field_representation == MachineRepresentation::kCompressedPointer) {

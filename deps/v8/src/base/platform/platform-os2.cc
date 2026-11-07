@@ -175,16 +175,6 @@ bool OS::SetPermissions(void* address, size_t size, MemoryPermission access) {
   return arc == NO_ERROR;
 }
 
-// static
-void OS::SetDataReadOnly(void* address, size_t size) {
-  CHECK(SetPermissions(address, size, MemoryPermission::kRead));
-}
-
-// static
-bool OS::RecommitPages(void* address, size_t size, MemoryPermission access) {
-  return SetPermissions(address, size, access);
-}
-
 bool OS::DiscardSystemPages(void* address, size_t size) {
   // OS/2 does not seem to support this function.
   return true;
@@ -230,6 +220,13 @@ void OS::SignalCodeMovingGC() {
 }
 
 void OS::AdjustSchedulingParams() {}
+
+std::vector<OS::MemoryRange> OS::GetFreeMemoryRangesWithin(
+    OS::Address boundary_start, OS::Address boundary_end, size_t minimum_size,
+    size_t alignment) {
+  // TODO: Port to OS/2.
+  return {};
+}
 
 // static
 Stack::StackSlot Stack::GetStackStart() {

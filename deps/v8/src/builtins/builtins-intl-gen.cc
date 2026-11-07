@@ -31,7 +31,7 @@ class IntlBuiltinsAssembler : public CodeStubAssembler {
   TNode<IntPtrT> PointerToSeqStringData(TNode<String> seq_string) {
     CSA_DCHECK(this,
                IsSequentialStringInstanceType(LoadInstanceType(seq_string)));
-    static_assert(SeqOneByteString::kHeaderSize ==
+    STATIC_ASSERT(SeqOneByteString::kHeaderSize ==
                   SeqTwoByteString::kHeaderSize);
     return IntPtrAdd(
         BitcastTaggedToWord(seq_string),

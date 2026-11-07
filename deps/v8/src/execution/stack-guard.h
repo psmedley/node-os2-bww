@@ -55,8 +55,7 @@ class V8_EXPORT_PRIVATE V8_NODISCARD StackGuard final {
   V(GROW_SHARED_MEMORY, GrowSharedMemory, 6)                      \
   V(LOG_WASM_CODE, LogWasmCode, 7)                                \
   V(WASM_CODE_GC, WasmCodeGC, 8)                                  \
-  V(INSTALL_MAGLEV_CODE, InstallMaglevCode, 9)                    \
-  V(GLOBAL_SAFEPOINT, GlobalSafepoint, 10)
+  V(INSTALL_MAGLEV_CODE, InstallMaglevCode, 9)
 
 #define V(NAME, Name, id)                                    \
   inline bool Check##Name() { return CheckInterrupt(NAME); } \
@@ -164,14 +163,14 @@ class V8_EXPORT_PRIVATE V8_NODISCARD StackGuard final {
     base::AtomicWord climit_ = kIllegalLimit;
 
     uintptr_t jslimit() {
-      return base::bit_cast<uintptr_t>(base::Relaxed_Load(&jslimit_));
+      return bit_cast<uintptr_t>(base::Relaxed_Load(&jslimit_));
     }
     void set_jslimit(uintptr_t limit) {
       return base::Relaxed_Store(&jslimit_,
                                  static_cast<base::AtomicWord>(limit));
     }
     uintptr_t climit() {
-      return base::bit_cast<uintptr_t>(base::Relaxed_Load(&climit_));
+      return bit_cast<uintptr_t>(base::Relaxed_Load(&climit_));
     }
     void set_climit(uintptr_t limit) {
       return base::Relaxed_Store(&climit_,
@@ -192,7 +191,7 @@ class V8_EXPORT_PRIVATE V8_NODISCARD StackGuard final {
   friend class InterruptsScope;
 };
 
-static_assert(StackGuard::kSizeInBytes == sizeof(StackGuard));
+STATIC_ASSERT(StackGuard::kSizeInBytes == sizeof(StackGuard));
 
 }  // namespace internal
 }  // namespace v8

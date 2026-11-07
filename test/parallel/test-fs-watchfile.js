@@ -90,9 +90,9 @@ if (common.isLinux || common.isOSX || common.isWindows) {
   fs.mkdir(dir, common.mustCall(function(err) {
     if (err) assert.fail(err);
 
-    const handle = fs.watch(dir, common.mustCall(function(eventType, filename) {
+    fs.watch(dir, common.mustCall(function(eventType, filename) {
       clearInterval(interval);
-      handle.close();
+      this._handle.close();
       assert.strictEqual(filename, 'foo.txt');
     }));
 

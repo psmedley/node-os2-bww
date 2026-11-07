@@ -15,7 +15,7 @@ const crypto = require('crypto').webcrypto;
     { name: 'AES-GCM' },
     false,
     [ 'encrypt', 'decrypt' ]);
-  assert(k instanceof CryptoKey);
+  assert(k instanceof crypto.CryptoKey);
 
   const e = await crypto.subtle.encrypt({
     name: 'AES-GCM',

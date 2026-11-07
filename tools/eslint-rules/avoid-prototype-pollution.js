@@ -1,7 +1,6 @@
 'use strict';
 
 const CallExpression = (fnName) => `CallExpression[callee.name=${fnName}]`;
-const AnyFunction = 'FunctionDeclaration, FunctionExpression, ArrowFunctionExpression';
 
 function checkProperties(context, node) {
   if (
@@ -26,22 +25,6 @@ function checkProperties(context, node) {
   }
 }
 
-function isNullPrototypeObjectExpression(node) {
-  if (node.type !== 'ObjectExpression') return;
-
-  for (const { key, value } of node.properties) {
-    if (
-      key != null && value != null &&
-      ((key.type === 'Identifier' && key.name === '__proto__') ||
-        (key.type === 'Literal' && key.value === '__proto__')) &&
-      value.type === 'Literal' && value.value === null
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function checkPropertyDescriptor(context, node) {
   if (
     node.type === 'CallExpression' &&
@@ -63,12 +46,23 @@ function checkPropertyDescriptor(context, node) {
       }],
     });
   }
-  if (isNullPrototypeObjectExpression(node) === false) {
-    context.report({
-      node,
-      message: 'Must use null-prototype object for property descriptors',
-    });
+  if (node.type !== 'ObjectExpression') return;
+
+  for (const { key, value } of node.properties) {
+    if (
+      key != null && value != null &&
+      ((key.type === 'Identifier' && key.name === '__proto__') ||
+        (key.type === 'Literal' && key.value === '__proto__')) &&
+      value.type === 'Literal' && value.value === null
+    ) {
+      return true;
+    }
   }
+
+  context.report({
+    node,
+    message: 'Must use null-prototype object for property descriptors',
+  });
 }
 
 function createUnsafeStringMethodReport(context, name, lookedUpProperty) {
@@ -80,7 +74,7 @@ function createUnsafeStringMethodReport(context, name, lookedUpProperty) {
         node,
         message: `${name} looks up the ${lookedUpProperty} property on the first argument`,
       });
-    }
+    },
   };
 }
 
@@ -98,7 +92,7 @@ function createUnsafeStringMethodOnRegexReport(context, name, lookedUpProperty) 
         node,
         message: `${name} looks up the ${lookedUpProperty} property of the passed regex, use ${safePrimordialName} directly`,
       });
-    }
+    },
   };
 }
 
@@ -123,24 +117,6 @@ module.exports = {
       [`${CallExpression('ObjectCreate')}[arguments.length=2]`](node) {
         checkProperties(context, node.arguments[1]);
       },
-
-      [`:matches(${AnyFunction})[async=true]>BlockStatement ReturnStatement>ObjectExpression, :matches(${AnyFunction})[async=true]>ObjectExpression`](node) {
-        if (node.parent.type === 'ReturnStatement') {
-          let { parent } = node;
-          do {
-            ({ parent } = parent);
-          } while (!parent.type.includes('Function'));
-
-          if (!parent.async) return;
-        }
-        if (isNullPrototypeObjectExpression(node) === false) {
-          context.report({
-            node,
-            message: 'Use null-prototype when returning from async function',
-          });
-        }
-      },
-
       [CallExpression('RegExpPrototypeTest')](node) {
         context.report({
           node,
@@ -155,7 +131,7 @@ module.exports = {
                 fixer.replaceTextRange(testRange, 'Exec'),
                 fixer.insertTextAfter(node, ' !== null'),
               ];
-            }
+            },
           }],
         });
       },
@@ -222,6 +198,14 @@ module.exports = {
         context.report({
           node,
           message: `Use Safe${node.callee.name} instead of ${node.callee.name}`,
+        });
+      },
+
+      [CallExpression('ArrayPrototypeConcat')](node) {
+        context.report({
+          node,
+          message: '%Array.prototype.concat% looks up `@@isConcatSpreadable` ' +
+                   'which can be subject to prototype pollution',
         });
       },
     };

@@ -11,30 +11,19 @@ let validUseGrouping = [
     false,
 ];
 
-let fallbackUseGrouping = [
-    "true",
-    "false",
-];
-
 let invalidUseGrouping = [
     "min-2",
+    "true",
 ];
-
 
 validUseGrouping.forEach(function(useGrouping) {
   let nf = new Intl.NumberFormat(undefined, {useGrouping});
   assertEquals(useGrouping, nf.resolvedOptions().useGrouping);
 });
 
-fallbackUseGrouping.forEach(function(useGrouping) {
-  let nf = new Intl.NumberFormat(undefined, {useGrouping});
-  assertEquals("auto", nf.resolvedOptions().useGrouping);
-});
-
 invalidUseGrouping.forEach(function(useGrouping) {
-  assertThrows(
-      () => new Intl.NumberFormat(undefined, {useGrouping}),
-      RangeError);
+  assertThrows(() => {
+    let nf = new Intl.NumberFormat(undefined, {useGrouping}); });
 });
 
 // useGrouping: undefined get "auto"

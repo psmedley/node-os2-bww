@@ -13,7 +13,7 @@ namespace internal {
 
 namespace {
 
-HeapObjectName GetHiddenName(const void*, HeapObjectNameForUnnamedObject) {
+HeapObjectName GetHiddenName(const void*) {
   return {NameProvider::kHiddenName, true};
 }
 

@@ -37,7 +37,6 @@
 #include "node.h"
 #include "node_binding.h"
 #include "node_builtins.h"
-#include "node_exit_code.h"
 #include "node_main_instance.h"
 #include "node_options.h"
 #include "node_perf_common.h"
@@ -155,11 +154,14 @@ class NODE_EXTERN_PRIVATE IsolateData : public MemoryRetainer {
 #undef VS
 #undef VP
 
+#define VM(PropertyName) V(PropertyName##_binding, v8::FunctionTemplate)
 #define V(PropertyName, TypeName)                                              \
   inline v8::Local<TypeName> PropertyName() const;                             \
   inline void set_##PropertyName(v8::Local<TypeName> value);
   PER_ISOLATE_TEMPLATE_PROPERTIES(V)
+  NODE_BINDINGS_WITH_PER_ISOLATE_INIT(VM)
 #undef V
+#undef VM
 
   inline v8::Local<v8::String> async_wrap_provider(int index) const;
 
@@ -179,6 +181,7 @@ class NODE_EXTERN_PRIVATE IsolateData : public MemoryRetainer {
 #define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
 #define VY(PropertyName, StringValue) V(v8::Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(v8::String, PropertyName)
+#define VM(PropertyName) V(v8::FunctionTemplate, PropertyName##_binding)
 #define VT(PropertyName, TypeName) V(TypeName, PropertyName)
 #define V(TypeName, PropertyName)                                             \
   v8::Eternal<TypeName> PropertyName ## _;
@@ -186,8 +189,9 @@ class NODE_EXTERN_PRIVATE IsolateData : public MemoryRetainer {
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
   PER_ISOLATE_TEMPLATE_PROPERTIES(VT)
+  NODE_BINDINGS_WITH_PER_ISOLATE_INIT(VM)
 #undef V
-#undef V
+#undef VM
 #undef VT
 #undef VS
 #undef VY
@@ -457,10 +461,10 @@ struct DeserializeRequest {
 };
 
 struct EnvSerializeInfo {
-  std::vector<std::string> builtins;
   AsyncHooks::SerializeInfo async_hooks;
   TickInfo::SerializeInfo tick_info;
   ImmediateInfo::SerializeInfo immediate_info;
+  AliasedBufferIndex timeout_info;
   performance::PerformanceState::SerializeInfo performance_state;
   AliasedBufferIndex exiting;
   AliasedBufferIndex stream_base_state;
@@ -519,10 +523,6 @@ struct SnapshotData {
   ~SnapshotData();
 };
 
-void DefaultProcessExitHandlerInternal(Environment* env, ExitCode exit_code);
-v8::Maybe<ExitCode> SpinEventLoopInternal(Environment* env);
-v8::Maybe<ExitCode> EmitProcessExitInternal(Environment* env);
-
 /**
  * Environment is a per-isolate data structure that represents an execution
  * environment. Each environment has a principal realm. An environment can
@@ -558,7 +558,7 @@ class Environment : public MemoryRetainer {
 #if HAVE_INSPECTOR
   // If the environment is created for a worker, pass parent_handle and
   // the ownership if transferred into the Environment.
-  void InitializeInspector(
+  int InitializeInspector(
       std::unique_ptr<inspector::ParentInspectorHandle> parent_handle);
 #endif
 
@@ -574,25 +574,6 @@ class Environment : public MemoryRetainer {
   template <typename T>
   static inline Environment* GetCurrent(
       const v8::PropertyCallbackInfo<T>& info);
-
-  // Methods created using SetMethod(), SetPrototypeMethod(), etc. inside
-  // this scope can access the created T* object using
-  // GetBindingData<T>(args) later.
-  template <typename T>
-  T* AddBindingData(v8::Local<v8::Context> context,
-                    v8::Local<v8::Object> target);
-  template <typename T, typename U>
-  static inline T* GetBindingData(const v8::PropertyCallbackInfo<U>& info);
-  template <typename T>
-  static inline T* GetBindingData(
-      const v8::FunctionCallbackInfo<v8::Value>& info);
-  template <typename T>
-  static inline T* GetBindingData(v8::Local<v8::Context> context);
-
-  typedef std::unordered_map<
-      FastStringKey,
-      BaseObjectPtr<BaseObject>,
-      FastStringKey::Hash> BindingDataStore;
 
   // Create an Environment without initializing a main Context. Use
   // InitializeMainContext() to initialize a main context for it.
@@ -631,8 +612,8 @@ class Environment : public MemoryRetainer {
 
   void RegisterHandleCleanups();
   void CleanupHandles();
-  void Exit(ExitCode code);
-  void ExitEnv();
+  void Exit(int code);
+  void ExitEnv(StopFlags::Flags flags);
 
   // Register clean-up cb to be called on environment destruction.
   inline void RegisterHandleCleanup(uv_handle_t* handle,
@@ -672,6 +653,7 @@ class Environment : public MemoryRetainer {
 
   inline AsyncHooks* async_hooks();
   inline ImmediateInfo* immediate_info();
+  inline AliasedInt32Array& timeout_info();
   inline TickInfo* tick_info();
   inline uint64_t timer_base() const;
   inline std::shared_ptr<KVStore> env_vars();
@@ -713,22 +695,9 @@ class Environment : public MemoryRetainer {
   // List of id's that have been destroyed and need the destroy() cb called.
   inline std::vector<double>* destroy_async_id_list();
 
-  std::set<struct node_module*> internal_bindings;
-  std::set<std::string> builtins_with_cache;
-  std::set<std::string> builtins_without_cache;
-  // This is only filled during deserialization. We use a vector since
-  // it's only used for tests.
-  std::vector<std::string> builtins_in_snapshot;
+  builtins::BuiltinLoader* builtin_loader();
 
   std::unordered_multimap<int, loader::ModuleWrap*> hash_to_module_map;
-  std::unordered_map<uint32_t, loader::ModuleWrap*> id_to_module_map;
-  std::unordered_map<uint32_t, contextify::ContextifyScript*>
-      id_to_script_map;
-  std::unordered_map<uint32_t, contextify::CompiledFnEntry*> id_to_function_map;
-
-  inline uint32_t get_next_module_id();
-  inline uint32_t get_next_script_id();
-  inline uint32_t get_next_function_id();
 
   EnabledDebugList* enabled_debug_list() { return &enabled_debug_list_; }
 
@@ -779,6 +748,7 @@ class Environment : public MemoryRetainer {
   void stop_sub_worker_contexts();
   template <typename Fn>
   inline void ForEachWorker(Fn&& iterator);
+  // Determine if the environment is stopping. This getter is thread-safe.
   inline bool is_stopping() const;
   inline void set_stopping(bool value);
   inline std::list<node_module>* extra_linked_bindings();
@@ -859,13 +829,6 @@ class Environment : public MemoryRetainer {
 
   inline HandleWrapQueue* handle_wrap_queue() { return &handle_wrap_queue_; }
   inline ReqWrapQueue* req_wrap_queue() { return &req_wrap_queue_; }
-
-  inline uint64_t time_origin() {
-    return time_origin_;
-  }
-  inline double time_origin_timestamp() {
-    return time_origin_timestamp_;
-  }
 
   inline bool EmitProcessEnvWarning() {
     bool current_value = emit_env_nonstring_warning_;
@@ -960,9 +923,8 @@ class Environment : public MemoryRetainer {
 
 #endif  // HAVE_INSPECTOR
 
-  inline void set_main_utf16(std::unique_ptr<v8::String::Value>);
   inline void set_process_exit_handler(
-      std::function<void(Environment*, ExitCode)>&& handler);
+      std::function<void(Environment*, int)>&& handler);
 
   void RunAndClearNativeImmediates(bool only_refed = false);
   void RunAndClearInterrupts();
@@ -998,8 +960,13 @@ class Environment : public MemoryRetainer {
   uv_async_t task_queues_async_;
   int64_t task_queues_async_refs_ = 0;
 
+  // These may be read by ctors and should be listed before complex fields.
+  std::atomic_bool is_stopping_{false};
+  std::atomic_bool can_call_into_js_{true};
+
   AsyncHooks async_hooks_;
   ImmediateInfo immediate_info_;
+  AliasedInt32Array timeout_info_;
   TickInfo tick_info_;
   const uint64_t timer_base_;
   std::shared_ptr<KVStore> env_vars_;
@@ -1057,15 +1024,11 @@ class Environment : public MemoryRetainer {
 
   AliasedInt32Array stream_base_state_;
 
-  // https://w3c.github.io/hr-time/#dfn-time-origin
-  uint64_t time_origin_;
-  // https://w3c.github.io/hr-time/#dfn-get-time-origin-timestamp
-  double time_origin_timestamp_;
+  uint64_t environment_start_time_;
   std::unique_ptr<performance::PerformanceState> performance_state_;
 
   bool has_serialized_options_ = false;
 
-  std::atomic_bool can_call_into_js_ { true };
   uint64_t flags_;
   uint64_t thread_id_;
   std::unordered_set<worker::Worker*> sub_worker_contexts_;
@@ -1120,24 +1083,17 @@ class Environment : public MemoryRetainer {
   void RequestInterruptFromV8();
   static void CheckImmediate(uv_check_t* handle);
 
-  BindingDataStore bindings_;
-
   CleanupQueue cleanup_queue_;
   bool started_cleanup_ = false;
 
-  std::atomic_bool is_stopping_ { false };
-
   std::unordered_set<int> unmanaged_fds_;
 
-  std::function<void(Environment*, ExitCode)> process_exit_handler_{
-      DefaultProcessExitHandlerInternal};
+  std::function<void(Environment*, int)> process_exit_handler_ {
+      DefaultProcessExitHandler };
 
   std::unique_ptr<Realm> principal_realm_ = nullptr;
 
-  // Keeps the main script source alive is one was passed to LoadEnvironment().
-  // We should probably find a way to just use plain `v8::String`s created from
-  // the source passed to LoadEnvironment() directly instead.
-  std::unique_ptr<v8::String::Value> main_utf16_;
+  builtins::BuiltinLoader builtin_loader_;
 
   // Used by allocate_managed_buffer() and release_managed_buffer() to keep
   // track of the BackingStore for a given pointer.

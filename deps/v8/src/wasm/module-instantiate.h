@@ -11,9 +11,7 @@
 
 #include <stdint.h>
 
-#include "src/base/optional.h"
-#include "src/common/message-template.h"
-#include "src/wasm/wasm-value.h"
+#include "include/v8config.h"
 
 namespace v8 {
 namespace internal {
@@ -31,7 +29,7 @@ template <typename T>
 class MaybeHandle;
 
 namespace wasm {
-class ConstantExpression;
+
 class ErrorThrower;
 
 MaybeHandle<WasmInstanceObject> InstantiateToInstanceObject(
@@ -39,13 +37,9 @@ MaybeHandle<WasmInstanceObject> InstantiateToInstanceObject(
     Handle<WasmModuleObject> module_object, MaybeHandle<JSReceiver> imports,
     MaybeHandle<JSArrayBuffer> memory);
 
-// Loads a range of elements from element segment into a table.
-// Returns the empty {Optional} if the operation succeeds, or an {Optional} with
-// the error {MessageTemplate} if it fails.
-base::Optional<MessageTemplate> LoadElemSegment(
-    Isolate* isolate, Handle<WasmInstanceObject> instance, uint32_t table_index,
-    uint32_t segment_index, uint32_t dst, uint32_t src,
-    uint32_t count) V8_WARN_UNUSED_RESULT;
+bool LoadElemSegment(Isolate* isolate, Handle<WasmInstanceObject> instance,
+                     uint32_t table_index, uint32_t segment_index, uint32_t dst,
+                     uint32_t src, uint32_t count) V8_WARN_UNUSED_RESULT;
 
 }  // namespace wasm
 }  // namespace internal

@@ -6,6 +6,7 @@
 
 #include "src/compiler/schedule.h"
 #include "src/compiler/scheduler.h"
+#include "test/unittests/compiler/compiler-test-utils.h"
 #include "test/unittests/test-utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 

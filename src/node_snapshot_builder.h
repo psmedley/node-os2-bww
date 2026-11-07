@@ -5,7 +5,6 @@
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #include <cstdint>
-#include "node_exit_code.h"
 #include "node_mutex.h"
 #include "v8.h"
 
@@ -16,14 +15,14 @@ struct SnapshotData;
 
 class NODE_EXTERN_PRIVATE SnapshotBuilder {
  public:
-  static ExitCode Generate(std::ostream& out,
-                           const std::vector<std::string> args,
-                           const std::vector<std::string> exec_args);
+  static int Generate(std::ostream& out,
+                      const std::vector<std::string> args,
+                      const std::vector<std::string> exec_args);
 
   // Generate the snapshot into out.
-  static ExitCode Generate(SnapshotData* out,
-                           const std::vector<std::string> args,
-                           const std::vector<std::string> exec_args);
+  static int Generate(SnapshotData* out,
+                      const std::vector<std::string> args,
+                      const std::vector<std::string> exec_args);
 
   // If nullptr is returned, the binary is not built with embedded
   // snapshot.

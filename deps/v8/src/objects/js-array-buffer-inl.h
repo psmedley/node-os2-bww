@@ -28,19 +28,11 @@ RELEASE_ACQUIRE_ACCESSORS(JSTypedArray, base_pointer, Object,
                           kBasePointerOffset)
 
 size_t JSArrayBuffer::byte_length() const {
-  return ReadBoundedSizeField(kRawByteLengthOffset);
+  return ReadField<size_t>(kByteLengthOffset);
 }
 
 void JSArrayBuffer::set_byte_length(size_t value) {
-  WriteBoundedSizeField(kRawByteLengthOffset, value);
-}
-
-size_t JSArrayBuffer::max_byte_length() const {
-  return ReadBoundedSizeField(kRawMaxByteLengthOffset);
-}
-
-void JSArrayBuffer::set_max_byte_length(size_t value) {
-  WriteBoundedSizeField(kRawMaxByteLengthOffset, value);
+  WriteField<size_t>(kByteLengthOffset, value);
 }
 
 DEF_GETTER(JSArrayBuffer, backing_store, void*) {
@@ -59,7 +51,7 @@ std::shared_ptr<BackingStore> JSArrayBuffer::GetBackingStore() const {
 }
 
 size_t JSArrayBuffer::GetByteLength() const {
-  if (V8_UNLIKELY(is_shared() && is_resizable_by_js())) {
+  if V8_UNLIKELY (is_shared() && is_resizable()) {
     // Invariant: byte_length for GSAB is 0 (it needs to be read from the
     // BackingStore).
     DCHECK_EQ(0, byte_length());
@@ -166,8 +158,8 @@ BIT_FIELD_ACCESSORS(JSArrayBuffer, bit_field, is_asmjs_memory,
                     JSArrayBuffer::IsAsmJsMemoryBit)
 BIT_FIELD_ACCESSORS(JSArrayBuffer, bit_field, is_shared,
                     JSArrayBuffer::IsSharedBit)
-BIT_FIELD_ACCESSORS(JSArrayBuffer, bit_field, is_resizable_by_js,
-                    JSArrayBuffer::IsResizableByJsBit)
+BIT_FIELD_ACCESSORS(JSArrayBuffer, bit_field, is_resizable,
+                    JSArrayBuffer::IsResizableBit)
 
 bool JSArrayBuffer::IsEmpty() const {
   auto backing_store = GetBackingStore();
@@ -177,19 +169,19 @@ bool JSArrayBuffer::IsEmpty() const {
 }
 
 size_t JSArrayBufferView::byte_offset() const {
-  return ReadBoundedSizeField(kRawByteOffsetOffset);
+  return ReadField<size_t>(kByteOffsetOffset);
 }
 
 void JSArrayBufferView::set_byte_offset(size_t value) {
-  WriteBoundedSizeField(kRawByteOffsetOffset, value);
+  WriteField<size_t>(kByteOffsetOffset, value);
 }
 
 size_t JSArrayBufferView::byte_length() const {
-  return ReadBoundedSizeField(kRawByteLengthOffset);
+  return ReadField<size_t>(kByteLengthOffset);
 }
 
 void JSArrayBufferView::set_byte_length(size_t value) {
-  WriteBoundedSizeField(kRawByteLengthOffset, value);
+  WriteField<size_t>(kByteLengthOffset, value);
 }
 
 bool JSArrayBufferView::WasDetached() const {
@@ -238,35 +230,18 @@ bool JSTypedArray::IsDetachedOrOutOfBounds() const {
   return out_of_bounds;
 }
 
-// static
-inline void JSTypedArray::ForFixedTypedArray(ExternalArrayType array_type,
-                                             size_t* element_size,
-                                             ElementsKind* element_kind) {
-  switch (array_type) {
-#define TYPED_ARRAY_CASE(Type, type, TYPE, ctype) \
-  case kExternal##Type##Array:                    \
-    *element_size = sizeof(ctype);                \
-    *element_kind = TYPE##_ELEMENTS;              \
-    return;
-
-    TYPED_ARRAYS(TYPED_ARRAY_CASE)
-#undef TYPED_ARRAY_CASE
-  }
-  UNREACHABLE();
-}
-
 size_t JSTypedArray::length() const {
   DCHECK(!is_length_tracking());
   DCHECK(!is_backed_by_rab());
-  return ReadBoundedSizeField(kRawLengthOffset);
+  return ReadField<size_t>(kLengthOffset);
 }
 
 size_t JSTypedArray::LengthUnchecked() const {
-  return ReadBoundedSizeField(kRawLengthOffset);
+  return ReadField<size_t>(kLengthOffset);
 }
 
 void JSTypedArray::set_length(size_t value) {
-  WriteBoundedSizeField(kRawLengthOffset, value);
+  WriteField<size_t>(kLengthOffset, value);
 }
 
 DEF_GETTER(JSTypedArray, external_pointer, Address) {
@@ -317,7 +292,7 @@ void* JSTypedArray::DataPtr() {
   // so that the addition with |external_pointer| (which already contains
   // compensated offset value) will decompress the tagged value.
   // See JSTypedArray::ExternalPointerCompensationForOnHeapArray() for details.
-  static_assert(kOffHeapDataPtrEqualsExternalPointer);
+  STATIC_ASSERT(kOffHeapDataPtrEqualsExternalPointer);
   return reinterpret_cast<void*>(external_pointer() +
                                  static_cast<Tagged_t>(base_pointer().ptr()));
 }

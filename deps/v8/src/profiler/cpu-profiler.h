@@ -386,7 +386,7 @@ class V8_EXPORT_PRIVATE CpuProfiler {
   void DisableLogging();
 
   // Computes a sampling interval sufficient to accomodate attached profiles.
-  base::TimeDelta ComputeSamplingInterval();
+  base::TimeDelta ComputeSamplingInterval() const;
   // Dynamically updates the sampler to use a sampling interval sufficient for
   // child profiles.
   void AdjustSamplingInterval();

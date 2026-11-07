@@ -11,8 +11,12 @@
 
 #include "src/base/build_config.h"
 #include "src/base/macros.h"
+#include "src/common/globals.h"
 
-namespace v8::internal::wasm {
+namespace v8 {
+namespace internal {
+
+namespace wasm {
 
 class NativeModule;
 
@@ -72,6 +76,8 @@ class V8_NODISCARD CodeSpaceWriteScope final {
   NativeModule* const previous_native_module_;
 };
 
-}  // namespace v8::internal::wasm
+}  // namespace wasm
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_WASM_CODE_SPACE_ACCESS_H_

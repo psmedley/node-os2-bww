@@ -27,6 +27,8 @@
 
 #include <memory>
 
+#include "src/init/v8.h"
+
 #include "src/api/api-inl.h"
 #include "src/debug/debug.h"
 #include "src/objects/objects-inl.h"

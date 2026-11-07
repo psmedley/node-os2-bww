@@ -180,9 +180,7 @@ See [Advanced serialization for `child_process`][] for more details.
 
 <!-- YAML
 added: v10.12.0
-deprecated:
-  - v17.6.0
-  - v16.15.0
+deprecated: v17.6.0
 -->
 
 > Stability: 0 - Deprecated
@@ -1041,9 +1039,6 @@ This feature is not available in [`Worker`][] threads.
 <!-- YAML
 added: v0.7.7
 changes:
-  - version: v19.0.0
-    pr-url: https://github.com/nodejs/node/pull/43627
-    description: The `process.config` object is now frozen.
   - version: v16.0.0
     pr-url: https://github.com/nodejs/node/pull/36902
     description: Modifying process.config has been deprecated.
@@ -1051,10 +1046,10 @@ changes:
 
 * {Object}
 
-The `process.config` property returns a frozen `Object` containing the
-JavaScript representation of the configure options used to compile the current
-Node.js executable. This is the same as the `config.gypi` file that was produced
-when running the `./configure` script.
+The `process.config` property returns an `Object` containing the JavaScript
+representation of the configure options used to compile the current Node.js
+executable. This is the same as the `config.gypi` file that was produced when
+running the `./configure` script.
 
 An example of the possible output looks like:
 
@@ -1078,6 +1073,7 @@ An example of the possible output looks like:
      node_shared_http_parser: 'false',
      node_shared_libuv: 'false',
      node_shared_zlib: 'false',
+     node_use_dtrace: 'false',
      node_use_openssl: 'true',
      node_shared_openssl: 'false',
      strict_aliasing: 'true',
@@ -1086,6 +1082,14 @@ An example of the possible output looks like:
    }
 }
 ```
+
+The `process.config` property is **not** read-only and there are existing
+modules in the ecosystem that are known to extend, modify, or entirely replace
+the value of `process.config`.
+
+Modifying the `process.config` property, or any child-property of the
+`process.config` object has been deprecated. The `process.config` will be made
+read-only in a future release.
 
 ## `process.connected`
 
@@ -1102,6 +1106,23 @@ and [Cluster][] documentation), the `process.connected` property will return
 
 Once `process.connected` is `false`, it is no longer possible to send messages
 over the IPC channel using `process.send()`.
+
+## `process.constrainedMemory()`
+
+<!-- YAML
+added: v18.15.0
+-->
+
+> Stability: 1 - Experimental
+
+* {number|undefined}
+
+Gets the amount of memory available to the process (in bytes) based on
+limits imposed by the OS. If there is no such constraint, or the constraint
+is unknown, `undefined` is returned.
+
+See [`uv_get_constrained_memory`][uv_get_constrained_memory] for more
+information.
 
 ## `process.cpuUsage([previousValue])`
 
@@ -1647,7 +1668,9 @@ each [`Worker`][] thread has its own copy of `process.env`, based on its
 parent thread's `process.env`, or whatever was specified as the `env` option
 to the [`Worker`][] constructor. Changes to `process.env` will not be visible
 across [`Worker`][] threads, and only the main thread can make changes that
-are visible to the operating system or to native add-ons.
+are visible to the operating system or to native add-ons. On Windows, a copy of
+`process.env` on a [`Worker`][] instance operates in a case-sensitive manner
+unlike the main thread.
 
 ## `process.execArgv`
 
@@ -2344,7 +2367,7 @@ console.log(memoryUsage.rss());
 ```
 
 ```cjs
-const { rss } = require('node:process');
+const { memoryUsage } = require('node:process');
 
 console.log(memoryUsage.rss());
 // 35655680
@@ -2856,6 +2879,7 @@ present.
 
 ```mjs
 import { report } from 'node:process';
+import util from 'node:util';
 
 const data = report.getReport();
 console.log(data.header.nodejsVersion);
@@ -2867,6 +2891,7 @@ fs.writeFileSync('my-report.log', util.inspect(data), 'utf8');
 
 ```cjs
 const { report } = require('node:process');
+const util = require('node:util');
 
 const data = report.getReport();
 console.log(data.header.nodejsVersion);
@@ -3435,6 +3460,19 @@ throw an error.
 Using this function is mutually exclusive with using the deprecated
 [`domain`][] built-in module.
 
+## `process.sourceMapsEnabled`
+
+<!-- YAML
+added: v18.19.0
+-->
+
+> Stability: 1 - Experimental
+
+* {boolean}
+
+The `process.sourceMapsEnabled` property returns whether the
+[Source Map v3][Source Map] support for stack traces is enabled.
+
 ## `process.stderr`
 
 * {Stream}
@@ -3889,6 +3927,7 @@ cases:
 [process_warning]: #event-warning
 [report documentation]: report.md
 [terminal raw mode]: tty.md#readstreamsetrawmodemode
+[uv_get_constrained_memory]: https://docs.libuv.org/en/v1.x/misc.html#c.uv_get_constrained_memory
 [uv_rusage_t]: https://docs.libuv.org/en/v1.x/misc.html#c.uv_rusage_t
 [wikipedia_major_fault]: https://en.wikipedia.org/wiki/Page_fault#Major
 [wikipedia_minor_fault]: https://en.wikipedia.org/wiki/Page_fault#Minor

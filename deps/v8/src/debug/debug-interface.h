@@ -11,7 +11,6 @@
 #include "include/v8-date.h"
 #include "include/v8-debug.h"
 #include "include/v8-embedder-heap.h"
-#include "include/v8-isolate.h"
 #include "include/v8-local-handle.h"
 #include "include/v8-memory-span.h"
 #include "include/v8-promise.h"
@@ -34,10 +33,13 @@ namespace internal {
 struct CoverageBlock;
 struct CoverageFunction;
 struct CoverageScript;
+struct TypeProfileEntry;
+struct TypeProfileScript;
 class Coverage;
 class DisableBreak;
 class PostponeInterruptsScope;
 class Script;
+class TypeProfile;
 }  // namespace internal
 
 namespace debug {
@@ -47,9 +49,6 @@ int GetContextId(Local<Context> context);
 
 void SetInspector(Isolate* isolate, v8_inspector::V8Inspector*);
 v8_inspector::V8Inspector* GetInspector(Isolate* isolate);
-
-// Returns a debug string representation of the bigint without tailing `n`.
-Local<String> GetBigIntStringValue(Isolate* isolate, Local<BigInt> bigint);
 
 // Returns a debug string representation of the bigint.
 Local<String> GetBigIntDescription(Isolate* isolate, Local<BigInt> bigint);
@@ -136,7 +135,6 @@ enum class BreakReason : uint8_t {
 typedef base::EnumSet<BreakReason> BreakReasons;
 
 void PrepareStep(Isolate* isolate, StepAction action);
-bool PrepareRestartFrame(Isolate* isolate, int callFrameOrdinal);
 void ClearStepping(Isolate* isolate);
 V8_EXPORT_PRIVATE void BreakRightNow(
     Isolate* isolate, base::EnumSet<BreakReason> break_reason = {});
@@ -163,7 +161,6 @@ struct LiveEditResult {
   bool stack_changed = false;
   // Available only for OK.
   v8::Local<v8::debug::Script> script;
-  bool restart_top_frame_required = false;
   // Fields below are available only for COMPILE_ERROR.
   v8::Local<v8::String> message;
   int line_number = -1;
@@ -210,7 +207,6 @@ class V8_EXPORT_PRIVATE Script {
   MaybeLocal<String> Name() const;
   MaybeLocal<String> SourceURL() const;
   MaybeLocal<String> SourceMappingURL() const;
-  MaybeLocal<String> GetSha256Hash() const;
   Maybe<int> ContextId() const;
   Local<ScriptSource> Source() const;
   bool IsModule() const;
@@ -218,13 +214,9 @@ class V8_EXPORT_PRIVATE Script {
       const debug::Location& start, const debug::Location& end,
       bool restrict_to_function,
       std::vector<debug::BreakLocation>* locations) const;
-  enum class GetSourceOffsetMode { kStrict, kClamp };
-  Maybe<int> GetSourceOffset(
-      const debug::Location& location,
-      GetSourceOffsetMode mode = GetSourceOffsetMode::kStrict) const;
+  int GetSourceOffset(const debug::Location& location) const;
   v8::debug::Location GetSourceLocation(int offset) const;
   bool SetScriptSource(v8::Local<v8::String> newSource, bool preview,
-                       bool allow_top_frame_live_editing,
                        LiveEditResult* result) const;
   bool SetBreakpoint(v8::Local<v8::String> condition, debug::Location* location,
                      BreakpointId* id) const;
@@ -233,13 +225,6 @@ class V8_EXPORT_PRIVATE Script {
   void RemoveWasmBreakpoint(BreakpointId id);
 #endif  // V8_ENABLE_WEBASSEMBLY
   bool SetInstrumentationBreakpoint(BreakpointId* id) const;
-};
-
-class DisassemblyCollector {
- public:
-  virtual void ReserveLineCount(size_t count) = 0;
-  virtual void AddLine(const char* src, size_t length,
-                       uint32_t bytecode_offset) = 0;
 };
 
 #if V8_ENABLE_WEBASSEMBLY
@@ -257,9 +242,6 @@ class WasmScript : public Script {
   std::pair<int, int> GetFunctionRange(int function_index) const;
   int GetContainingFunction(int byte_offset) const;
 
-  void Disassemble(DisassemblyCollector* collector,
-                   std::vector<int>* function_body_offsets);
-
   uint32_t GetFunctionHash(int function_index);
 
   int CodeOffset() const;
@@ -267,8 +249,8 @@ class WasmScript : public Script {
 };
 #endif  // V8_ENABLE_WEBASSEMBLY
 
-V8_EXPORT_PRIVATE void GetLoadedScripts(
-    Isolate* isolate, std::vector<v8::Global<Script>>& scripts);
+V8_EXPORT_PRIVATE void GetLoadedScripts(Isolate* isolate,
+                                        PersistentValueVector<Script>& scripts);
 
 MaybeLocal<UnboundScript> CompileInspectorScript(Isolate* isolate,
                                                  Local<String> source);
@@ -435,6 +417,64 @@ class V8_EXPORT_PRIVATE Coverage {
   std::shared_ptr<i::Coverage> coverage_;
 };
 
+/*
+ * Provide API layer between inspector and type profile.
+ */
+class V8_EXPORT_PRIVATE TypeProfile {
+ public:
+  MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(TypeProfile);
+
+  class ScriptData;  // Forward declaration.
+
+  class V8_EXPORT_PRIVATE Entry {
+   public:
+    MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(Entry);
+
+    int SourcePosition() const;
+    std::vector<MaybeLocal<String>> Types() const;
+
+   private:
+    explicit Entry(const i::TypeProfileEntry* entry,
+                   std::shared_ptr<i::TypeProfile> type_profile)
+        : entry_(entry), type_profile_(std::move(type_profile)) {}
+
+    const i::TypeProfileEntry* entry_;
+    std::shared_ptr<i::TypeProfile> type_profile_;
+
+    friend class v8::debug::TypeProfile::ScriptData;
+  };
+
+  class V8_EXPORT_PRIVATE ScriptData {
+   public:
+    MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(ScriptData);
+
+    Local<debug::Script> GetScript() const;
+    std::vector<Entry> Entries() const;
+
+   private:
+    explicit ScriptData(size_t index,
+                        std::shared_ptr<i::TypeProfile> type_profile);
+
+    i::TypeProfileScript* script_;
+    std::shared_ptr<i::TypeProfile> type_profile_;
+
+    friend class v8::debug::TypeProfile;
+  };
+
+  static TypeProfile Collect(Isolate* isolate);
+
+  static void SelectMode(Isolate* isolate, TypeProfileMode mode);
+
+  size_t ScriptCount() const;
+  ScriptData GetScriptData(size_t i) const;
+
+ private:
+  explicit TypeProfile(std::shared_ptr<i::TypeProfile> type_profile)
+      : type_profile_(std::move(type_profile)) {}
+
+  std::shared_ptr<i::TypeProfile> type_profile_;
+};
+
 class V8_EXPORT_PRIVATE ScopeIterator {
  public:
   static std::unique_ptr<ScopeIterator> CreateForFunction(
@@ -494,7 +534,6 @@ class V8_EXPORT_PRIVATE StackTraceIterator {
   virtual debug::Location GetSourceLocation() const = 0;
   virtual v8::Local<v8::Function> GetFunction() const = 0;
   virtual std::unique_ptr<ScopeIterator> GetScopeIterator() const = 0;
-  virtual bool CanBeRestarted() const = 0;
 
   virtual v8::MaybeLocal<v8::Value> Evaluate(v8::Local<v8::String> source,
                                              bool throw_on_side_effect) = 0;
@@ -508,18 +547,17 @@ class QueryObjectPredicate {
 
 void QueryObjects(v8::Local<v8::Context> context,
                   QueryObjectPredicate* predicate,
-                  std::vector<v8::Global<v8::Object>>* objects);
+                  v8::PersistentValueVector<v8::Object>* objects);
 
 void GlobalLexicalScopeNames(v8::Local<v8::Context> context,
-                             std::vector<v8::Global<v8::String>>* names);
+                             v8::PersistentValueVector<v8::String>* names);
 
 void SetReturnValue(v8::Isolate* isolate, v8::Local<v8::Value> value);
 
 enum class NativeAccessorType {
   None = 0,
   HasGetter = 1 << 0,
-  HasSetter = 1 << 1,
-  IsValueUnavailable = 1 << 2
+  HasSetter = 1 << 1
 };
 
 int64_t GetNextRandomInt64(v8::Isolate* isolate);
@@ -550,8 +588,9 @@ bool SetFunctionBreakpoint(v8::Local<v8::Function> function,
 
 v8::Platform* GetCurrentPlatform();
 
-void ForceGarbageCollection(v8::Isolate* isolate,
-                            v8::StackState embedder_stack_state);
+void ForceGarbageCollection(
+    v8::Isolate* isolate,
+    v8::EmbedderHeapTracer::EmbedderStackState embedder_stack_state);
 
 class V8_NODISCARD PostponeInterruptsScope {
  public:
@@ -671,9 +710,6 @@ AccessorPair* AccessorPair::Cast(v8::Value* value) {
 MaybeLocal<Message> GetMessageFromPromise(Local<Promise> promise);
 
 bool isExperimentalAsyncStackTaggingApiEnabled();
-bool isExperimentalRemoveInternalScopesPropertyEnabled();
-
-void RecordAsyncStackTaggingCreateTaskCall(v8::Isolate* isolate);
 
 }  // namespace debug
 }  // namespace v8

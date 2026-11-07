@@ -42,8 +42,8 @@ class WithFinalizationRegistryMixin : public TMixin {
   static void SetUpTestSuite() {
     CHECK_NULL(save_flags_);
     save_flags_ = new SaveFlags();
-    v8_flags.expose_gc = true;
-    v8_flags.allow_natives_syntax = true;
+    FLAG_expose_gc = true;
+    FLAG_allow_natives_syntax = true;
     TMixin::SetUpTestSuite();
   }
 

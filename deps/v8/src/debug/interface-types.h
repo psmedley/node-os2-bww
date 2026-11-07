@@ -9,7 +9,7 @@
 
 #include "include/v8-function-callback.h"
 #include "include/v8-local-handle.h"
-#include "src/base/macros.h"
+#include "src/common/globals.h"
 
 namespace v8 {
 
@@ -76,6 +76,11 @@ enum class CoverageMode {
   // lower granularity. Design doc: goo.gl/lA2swZ.
   kBlockCount,
   kBlockBinary,
+};
+
+enum class TypeProfileMode {
+  kNone,
+  kCollect,
 };
 
 class V8_EXPORT_PRIVATE BreakLocation : public Location {

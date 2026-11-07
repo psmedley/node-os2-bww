@@ -165,12 +165,9 @@ class EXPORT_TEMPLATE_DECLARE(V8_EXPORT_PRIVATE) HashTable
   inline Object KeyAt(PtrComprCageBase cage_base, InternalIndex entry,
                       RelaxedLoadTag tag);
 
-  inline void SetKeyAt(InternalIndex entry, Object value,
-                       WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
-
   static const int kElementsStartIndex = kPrefixStartIndex + Shape::kPrefixSize;
   static const int kEntrySize = Shape::kEntrySize;
-  static_assert(kEntrySize > 0);
+  STATIC_ASSERT(kEntrySize > 0);
   static const int kEntryKeyIndex = 0;
   static const int kElementsStartOffset =
       kHeaderSize + kElementsStartIndex * kTaggedSize;
@@ -250,13 +247,13 @@ class EXPORT_TEMPLATE_DECLARE(V8_EXPORT_PRIVATE) HashTable
 
  private:
   // Ensure that kMaxRegularCapacity yields a non-large object dictionary.
-  static_assert(EntryToIndex(InternalIndex(kMaxRegularCapacity)) <
+  STATIC_ASSERT(EntryToIndex(InternalIndex(kMaxRegularCapacity)) <
                 kMaxRegularLength);
-  static_assert(v8::base::bits::IsPowerOfTwo(kMaxRegularCapacity));
+  STATIC_ASSERT(v8::base::bits::IsPowerOfTwo(kMaxRegularCapacity));
   static const int kMaxRegularEntry = kMaxRegularCapacity / kEntrySize;
   static const int kMaxRegularIndex =
       EntryToIndex(InternalIndex(kMaxRegularEntry));
-  static_assert(OffsetOfElementAt(kMaxRegularIndex) <
+  STATIC_ASSERT(OffsetOfElementAt(kMaxRegularIndex) <
                 kMaxRegularHeapObjectSize);
 
   // Sets the capacity of the hash table.
@@ -469,10 +466,6 @@ class V8_EXPORT_PRIVATE NameToIndexHashTable
   static Handle<NameToIndexHashTable> Add(IsolateT* isolate,
                                           Handle<NameToIndexHashTable> table,
                                           Handle<Name> key, int32_t value);
-
-  // Exposed for NameDictionaryLookupForwardedString slow path for forwarded
-  // strings.
-  using HashTable<NameToIndexHashTable, NameToIndexShape>::FindInsertionEntry;
 
   DECL_CAST(NameToIndexHashTable)
   DECL_PRINTER(NameToIndexHashTable)

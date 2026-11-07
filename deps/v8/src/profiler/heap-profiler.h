@@ -31,8 +31,10 @@ class HeapProfiler : public HeapObjectAllocationTracker {
   HeapProfiler(const HeapProfiler&) = delete;
   HeapProfiler& operator=(const HeapProfiler&) = delete;
 
-  HeapSnapshot* TakeSnapshot(
-      const v8::HeapProfiler::HeapSnapshotOptions options);
+  HeapSnapshot* TakeSnapshot(v8::ActivityControl* control,
+                             v8::HeapProfiler::ObjectNameResolver* resolver,
+                             bool treat_global_objects_as_roots,
+                             bool capture_numeric_value);
 
   bool StartSamplingHeapProfiler(uint64_t sample_interval, int stack_depth,
                                  v8::HeapProfiler::SamplingFlags);
@@ -90,7 +92,7 @@ class HeapProfiler : public HeapObjectAllocationTracker {
 
   void QueryObjects(Handle<Context> context,
                     debug::QueryObjectPredicate* predicate,
-                    std::vector<v8::Global<v8::Object>>* objects);
+                    v8::PersistentValueVector<v8::Object>* objects);
 
  private:
   void MaybeClearStringsStorage();

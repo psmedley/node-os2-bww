@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 #include <utility>
 
+#include "src/init/v8.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/ordered-hash-table-inl.h"
 #include "test/cctest/cctest.h"

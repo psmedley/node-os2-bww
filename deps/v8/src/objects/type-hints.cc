@@ -23,8 +23,6 @@ std::ostream& operator<<(std::ostream& os, BinaryOperationHint hint) {
       return os << "String";
     case BinaryOperationHint::kBigInt:
       return os << "BigInt";
-    case BinaryOperationHint::kBigInt64:
-      return os << "BigInt64";
     case BinaryOperationHint::kAny:
       return os << "Any";
   }

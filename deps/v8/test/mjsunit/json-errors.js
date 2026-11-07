@@ -12,19 +12,19 @@ function TryParse(s, message) {
 }
 
 var s = `{"a\\\\b `;
-TryParse(s, "Unterminated string in JSON at position 7");
+TryParse(s, "Unexpected end of JSON input");
 
 var s = `{"a\\\\\u03A9 `;
-TryParse(s, "Unterminated string in JSON at position 7");
+TryParse(s, "Unexpected end of JSON input");
 
 var s = `{"ab `;
-TryParse(s, "Unterminated string in JSON at position 5");
+TryParse(s, "Unexpected end of JSON input");
 
 var s = `{"a\u03A9 `;
-TryParse(s, "Unterminated string in JSON at position 5");
+TryParse(s, "Unexpected end of JSON input");
 
 var s = `{"a\nb":"b"}`;
-TryParse(s, "Bad control character in string literal in JSON at position 3");
+TryParse(s, "Unexpected token \n in JSON at position 3");
 
 var s = `{"a\nb":"b\u03A9"}`;
-TryParse(s, "Bad control character in string literal in JSON at position 3");
+TryParse(s, "Unexpected token \n in JSON at position 3");

@@ -8,6 +8,7 @@
 #include "src/base/compiler-specific.h"
 #include "src/codegen/machine-type.h"
 #include "src/codegen/reloc-info.h"
+#include "src/codegen/string-constants.h"
 #include "src/common/globals.h"
 #include "src/compiler/feedback-source.h"
 #include "src/compiler/frame-states.h"
@@ -15,11 +16,12 @@
 #include "src/compiler/node-properties.h"
 #include "src/deoptimizer/deoptimize-reason.h"
 #include "src/zone/zone-containers.h"
+#include "src/zone/zone-handle-set.h"
 
 namespace v8 {
 namespace internal {
 
-V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream&, BranchHint);
+class StringConstantBase;
 
 namespace compiler {
 
@@ -37,6 +39,9 @@ class Node;
 // should be treated.
 enum class BranchSemantics { kJS, kMachine };
 
+// Prediction hint for branches.
+enum class BranchHint : uint8_t { kNone, kTrue, kFalse };
+
 inline BranchHint NegateBranchHint(BranchHint hint) {
   switch (hint) {
     case BranchHint::kNone:
@@ -48,6 +53,10 @@ inline BranchHint NegateBranchHint(BranchHint hint) {
   }
   UNREACHABLE();
 }
+
+inline size_t hash_value(BranchHint hint) { return static_cast<size_t>(hint); }
+
+V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream&, BranchHint);
 
 enum class TrapId : uint32_t {
 #define DEF_ENUM(Name, ...) k##Name,
@@ -410,6 +419,9 @@ const FrameStateInfo& FrameStateInfoOf(const Operator* op)
 V8_EXPORT_PRIVATE Handle<HeapObject> HeapConstantOf(const Operator* op)
     V8_WARN_UNUSED_RESULT;
 
+const StringConstantBase* StringConstantBaseOf(const Operator* op)
+    V8_WARN_UNUSED_RESULT;
+
 const char* StaticAssertSourceOf(const Operator* op);
 
 class SLVerifierHintParameters final {
@@ -495,10 +507,10 @@ class V8_EXPORT_PRIVATE CommonOperatorBuilder final
   const Operator* Int32Constant(int32_t);
   const Operator* Int64Constant(int64_t);
   const Operator* TaggedIndexConstant(int32_t value);
-  const Operator* Float32Constant(float);
-  const Operator* Float64Constant(double);
+  const Operator* Float32Constant(volatile float);
+  const Operator* Float64Constant(volatile double);
   const Operator* ExternalConstant(const ExternalReference&);
-  const Operator* NumberConstant(double);
+  const Operator* NumberConstant(volatile double);
   const Operator* PointerConstant(intptr_t);
   const Operator* HeapConstant(const Handle<HeapObject>&);
   const Operator* CompressedHeapConstant(const Handle<HeapObject>&);
@@ -553,6 +565,8 @@ class V8_EXPORT_PRIVATE CommonOperatorBuilder final
       const wasm::FunctionSig* signature);
 #endif  // V8_ENABLE_WEBASSEMBLY
 
+  const Operator* DelayedStringConstant(const StringConstantBase* str);
+
  private:
   Zone* zone() const { return zone_; }
 
@@ -596,7 +610,7 @@ class FrameState : public CommonNodeWrapperBase {
     DCHECK_EQ(node->opcode(), IrOpcode::kFrameState);
   }
 
-  const FrameStateInfo& frame_state_info() const {
+  FrameStateInfo frame_state_info() const {
     return FrameStateInfoOf(node()->op());
   }
 
@@ -656,7 +670,7 @@ class StartNode final : public CommonNodeWrapperBase {
     constexpr int kNewTarget = 1;
     constexpr int kArgCount = 1;
     constexpr int kContext = 1;
-    static_assert(kClosure + kNewTarget + kArgCount + kContext ==
+    STATIC_ASSERT(kClosure + kNewTarget + kArgCount + kContext ==
                   kExtraOutputCount);
     // Checking related linkage methods here since they rely on Start node
     // layout.

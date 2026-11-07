@@ -138,9 +138,6 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
   TNode<BoolT> FastFlagGetterUnicode(TNode<JSRegExp> regexp) {
     return FastFlagGetter(regexp, JSRegExp::kUnicode);
   }
-  TNode<BoolT> FastFlagGetterUnicodeSets(TNode<JSRegExp> regexp) {
-    return FastFlagGetter(regexp, JSRegExp::kUnicodeSets);
-  }
   TNode<BoolT> SlowFlagGetter(TNode<Context> context, TNode<Object> regexp,
                               JSRegExp::Flag flag);
   TNode<BoolT> FlagGetter(TNode<Context> context, TNode<Object> regexp,

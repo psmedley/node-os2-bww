@@ -85,9 +85,8 @@ class PropertyAccessInfo final {
       base::Optional<JSObjectRef> holder,
       base::Optional<MapRef> transition_map);
   static PropertyAccessInfo FastAccessorConstant(
-      Zone* zone, MapRef receiver_map, base::Optional<JSObjectRef> holder,
-      base::Optional<ObjectRef> constant,
-      base::Optional<JSObjectRef> api_holder);
+      Zone* zone, MapRef receiver_map, base::Optional<ObjectRef> constant,
+      base::Optional<JSObjectRef> holder);
   static PropertyAccessInfo ModuleExport(Zone* zone, MapRef receiver_map,
                                          CellRef cell);
   static PropertyAccessInfo StringLength(Zone* zone, MapRef receiver_map);
@@ -97,7 +96,7 @@ class PropertyAccessInfo final {
       InternalIndex dict_index, NameRef name);
   static PropertyAccessInfo DictionaryProtoAccessorConstant(
       Zone* zone, MapRef receiver_map, base::Optional<JSObjectRef> holder,
-      ObjectRef constant, base::Optional<JSObjectRef> api_holder, NameRef name);
+      ObjectRef constant, NameRef name);
 
   bool Merge(PropertyAccessInfo const* that, AccessMode access_mode,
              Zone* zone) V8_WARN_UNUSED_RESULT;
@@ -128,20 +127,12 @@ class PropertyAccessInfo final {
   ConstFieldInfo GetConstFieldInfo() const;
 
   Kind kind() const { return kind_; }
-
-  // The object where the property definition was found.
   base::Optional<JSObjectRef> holder() const {
     // TODO(neis): There was a CHECK here that tries to protect against
     // using the access info without recording its dependencies first.
     // Find a more suitable place for it.
     return holder_;
   }
-  // For accessor properties when the callback is an API function with a
-  // signature, this is the value that will be passed to the callback as
-  // FunctionCallbackInfo::Holder().
-  // Don't mix it up with holder in a "object where the property was found"
-  // sense.
-  base::Optional<JSObjectRef> api_holder() const { return api_holder_; }
   base::Optional<MapRef> transition_map() const {
     DCHECK(!HasDictionaryHolder());
     return transition_map_;
@@ -189,7 +180,6 @@ class PropertyAccessInfo final {
                      ZoneVector<MapRef>&& lookup_start_object_maps);
   PropertyAccessInfo(Zone* zone, Kind kind, base::Optional<JSObjectRef> holder,
                      base::Optional<ObjectRef> constant,
-                     base::Optional<JSObjectRef> api_holder,
                      base::Optional<NameRef> name,
                      ZoneVector<MapRef>&& lookup_start_object_maps);
   PropertyAccessInfo(Kind kind, base::Optional<JSObjectRef> holder,
@@ -208,7 +198,6 @@ class PropertyAccessInfo final {
   ZoneVector<MapRef> lookup_start_object_maps_;
   base::Optional<ObjectRef> constant_;
   base::Optional<JSObjectRef> holder_;
-  base::Optional<JSObjectRef> api_holder_;
 
   // Members only used for fast mode holders:
   ZoneVector<CompilationDependency const*> unrecorded_dependencies_;

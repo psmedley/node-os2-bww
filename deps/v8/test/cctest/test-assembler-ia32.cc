@@ -33,10 +33,12 @@
 #include "src/codegen/assembler-inl.h"
 #include "src/codegen/macro-assembler.h"
 #include "src/deoptimizer/deoptimizer.h"
-#include "src/execution/simulator.h"
+#include "src/diagnostics/disassembler.h"
 #include "src/heap/factory.h"
+#include "src/init/v8.h"
 #include "src/utils/ostreams.h"
 #include "test/cctest/cctest.h"
+#include "test/common/assembler-tester.h"
 
 namespace v8 {
 namespace internal {
@@ -138,6 +140,7 @@ TEST(AssemblerIa322) {
 
   // some relocated stuff here, not executed
   __ mov(eax, isolate->factory()->true_value());
+  __ jmp(kNullAddress, RelocInfo::RUNTIME_ENTRY);
 
   CodeDesc desc;
   assm.GetCode(isolate, &desc);
@@ -1525,7 +1528,7 @@ TEST(DeoptExitSizeIsFixed) {
   MacroAssembler masm(isolate, v8::internal::CodeObjectRequired::kYes,
                       ExternalAssemblerBuffer(buffer, sizeof(buffer)));
 
-  static_assert(static_cast<int>(kFirstDeoptimizeKind) == 0);
+  STATIC_ASSERT(static_cast<int>(kFirstDeoptimizeKind) == 0);
   for (int i = 0; i < kDeoptimizeKindCount; i++) {
     DeoptimizeKind kind = static_cast<DeoptimizeKind>(i);
     Label before_exit;

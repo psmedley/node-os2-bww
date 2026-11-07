@@ -114,6 +114,15 @@ struct servent *PASCAL getservbyname(const char *, const char *);
 # endif
 
 /*
+ * OS/2 (kLIBC) defines AF_INET6 but provides no IPv6 socket structures
+ * (struct sockaddr_in6 etc.), so treat it as having no IPv6 support.
+ */
+# if defined(__OS2__)
+#  undef AF_INET6
+#  undef IPV6_V6ONLY
+# endif
+
+/*
  * Some IPv6 implementations are broken, you can disable them in known
  * bad versions.
  */

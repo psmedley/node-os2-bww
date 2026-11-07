@@ -14,7 +14,8 @@ builder.addFunction('test', kSig_v_v)
     .addBody([kExprLoop, kWasmVoid,
                 kExprI64Const, 15,
                 kExprI32Const, 12,
-                kGCPrefix, kExprArrayNew, array,
+                kGCPrefix, kExprRttCanon, array,
+                kGCPrefix, kExprArrayNewWithRtt, array,
                 kExprDrop,
               kExprEnd])
     .exportFunc();

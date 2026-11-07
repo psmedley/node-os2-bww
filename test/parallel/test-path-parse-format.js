@@ -224,7 +224,3 @@ function checkFormat(path, testCases) {
     });
   });
 }
-
-// See https://github.com/nodejs/node/issues/44343
-assert.strictEqual(path.format({ name: 'x', ext: 'png' }), 'x.png');
-assert.strictEqual(path.format({ name: 'x', ext: '.png' }), 'x.png');

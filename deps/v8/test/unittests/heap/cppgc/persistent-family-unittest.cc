@@ -84,9 +84,9 @@ using LocalizedCrossThreadPersistent = internal::BasicCrossThreadPersistent<
     T, internal::StrongCrossThreadPersistentPolicy,
     internal::KeepLocationPolicy, internal::DisabledCheckingPolicy>;
 
-class TestRootVisitor final : public RootVisitorBase {
+class RootVisitor final : public VisitorBase {
  public:
-  TestRootVisitor() = default;
+  RootVisitor() = default;
 
   const auto& WeakCallbacks() const { return weak_callbacks_; }
 
@@ -101,7 +101,7 @@ class TestRootVisitor final : public RootVisitorBase {
  protected:
   void VisitRoot(const void* t, TraceDescriptor desc,
                  const SourceLocation&) final {
-    desc.callback(nullptr, desc.base_object_payload);
+    desc.callback(this, desc.base_object_payload);
   }
   void VisitWeakRoot(const void*, TraceDescriptor, WeakCallback callback,
                      const void* object, const SourceLocation&) final {
@@ -746,8 +746,8 @@ TEST_F(PersistentTest, TraceStrong) {
   }
   {
     GCed::trace_call_count = 0;
-    TestRootVisitor v;
-    GetRegion<Persistent>(heap).Iterate(v);
+    RootVisitor v;
+    GetRegion<Persistent>(heap).Trace(&v);
     EXPECT_EQ(kItems, GCed::trace_call_count);
     EXPECT_EQ(kItems, GetRegion<Persistent>(heap).NodesInUse());
   }
@@ -757,16 +757,16 @@ TEST_F(PersistentTest, TraceStrong) {
     vec[kItems / 2].Clear();
     vec[kItems / 4].Clear();
     vec[kItems - 1].Clear();
-    TestRootVisitor v;
-    GetRegion<Persistent>(heap).Iterate(v);
+    RootVisitor v;
+    GetRegion<Persistent>(heap).Trace(&v);
     EXPECT_EQ(kItems - 4, GCed::trace_call_count);
     EXPECT_EQ(kItems - 4, GetRegion<Persistent>(heap).NodesInUse());
   }
   {
     GCed::trace_call_count = 0;
     vec.clear();
-    TestRootVisitor v;
-    GetRegion<Persistent>(heap).Iterate(v);
+    RootVisitor v;
+    GetRegion<Persistent>(heap).Trace(&v);
     EXPECT_EQ(0u, GCed::trace_call_count);
     EXPECT_EQ(0u, GetRegion<Persistent>(heap).NodesInUse());
   }
@@ -780,8 +780,8 @@ TEST_F(PersistentTest, TraceWeak) {
     p = MakeGarbageCollected<GCed>(GetAllocationHandle());
   }
   GCed::trace_call_count = 0;
-  TestRootVisitor v;
-  GetRegion<WeakPersistent>(heap).Iterate(v);
+  RootVisitor v;
+  GetRegion<WeakPersistent>(heap).Trace(&v);
   const auto& callbacks = v.WeakCallbacks();
   EXPECT_EQ(kItems, callbacks.size());
   EXPECT_EQ(kItems, GetRegion<WeakPersistent>(heap).NodesInUse());
@@ -927,7 +927,7 @@ TEST_F(PersistentTest, LocalizedPersistent) {
 
 namespace {
 
-class ExpectingLocationVisitor final : public RootVisitorBase {
+class ExpectingLocationVisitor final : public VisitorBase {
  public:
   explicit ExpectingLocationVisitor(const SourceLocation& expected_location)
       : expected_loc_(expected_location) {}
@@ -960,7 +960,7 @@ TEST_F(PersistentTest, PersistentTraceLocation) {
 #endif  // !CCPPGC_SUPPORTS_SOURCE_LOCATION
     LocalizedPersistent<GCed> p = gced;
     ExpectingLocationVisitor visitor(expected_loc);
-    visitor.Trace(p);
+    visitor.TraceRootForTesting(p, p.Location());
   }
 }
 

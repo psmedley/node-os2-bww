@@ -13,8 +13,9 @@ let array_index = builder.addArray(kWasmS128, true);
 builder.addFunction("main", kSig_i_i)
   .addBody([
     kExprLocalGet, 0,
-    kGCPrefix, kExprArrayNewDefault, array_index,
-    kGCPrefix, kExprArrayLen,
+    kGCPrefix, kExprRttCanon, array_index,
+    kGCPrefix, kExprArrayNewDefaultWithRtt, array_index,
+    kGCPrefix, kExprArrayLen, array_index,
   ])
   .exportFunc();
 

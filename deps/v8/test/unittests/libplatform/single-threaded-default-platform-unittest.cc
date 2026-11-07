@@ -15,6 +15,9 @@ class WithSingleThreadedDefaultPlatformMixin : public TMixin {
     platform_ = v8::platform::NewSingleThreadedDefaultPlatform();
     CHECK_NOT_NULL(platform_.get());
     v8::V8::InitializePlatform(platform_.get());
+#ifdef V8_SANDBOX
+    CHECK(v8::V8::InitializeSandbox());
+#endif  // V8_SANDBOX
     v8::V8::Initialize();
   }
 
@@ -37,15 +40,25 @@ class SingleThreadedDefaultPlatformTest
                   ::testing::Test>>> {
  public:
   static void SetUpTestSuite() {
-    i::v8_flags.single_threaded = true;
-    i::FlagList::EnforceFlagImplications();
+    CHECK_NULL(save_flags_);
+    save_flags_ = new i::SaveFlags();
+    v8::V8::SetFlagsFromString("--single-threaded");
     WithIsolateScopeMixin::SetUpTestSuite();
   }
 
   static void TearDownTestSuite() {
     WithIsolateScopeMixin::TearDownTestSuite();
+    CHECK_NOT_NULL(save_flags_);
+    delete save_flags_;
+    save_flags_ = nullptr;
   }
+
+ private:
+  static i::SaveFlags* save_flags_;
 };
+
+// static
+i::SaveFlags* SingleThreadedDefaultPlatformTest::save_flags_;
 
 TEST_F(SingleThreadedDefaultPlatformTest, SingleThreadedDefaultPlatform) {
   {

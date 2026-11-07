@@ -27,6 +27,8 @@
 #include <cmath>
 #include <cstring>
 #include <locale>
+#include <regex>  // NOLINT(build/c++11)
+#include "node_revert.h"
 #include "util.h"
 
 // These are defined by <sys/byteorder.h> or <netinet/in.h> on some systems.
@@ -510,6 +512,22 @@ SlicedArguments::SlicedArguments(
     (*this)[i] = args[i + start];
 }
 
+template <typename T, size_t kStackStorageSize>
+void MaybeStackBuffer<T, kStackStorageSize>::AllocateSufficientStorage(
+    size_t storage) {
+  CHECK(!IsInvalidated());
+  if (storage > capacity()) {
+    bool was_allocated = IsAllocated();
+    T* allocated_ptr = was_allocated ? buf_ : nullptr;
+    buf_ = Realloc(allocated_ptr, storage);
+    capacity_ = storage;
+    if (!was_allocated && length_ > 0)
+      memcpy(buf_, buf_st_, length_ * sizeof(buf_[0]));
+  }
+
+  length_ = storage;
+}
+
 template <typename T, size_t S>
 ArrayBufferViewContents<T, S>::ArrayBufferViewContents(
     v8::Local<v8::Value> value) {
@@ -555,6 +573,7 @@ void ArrayBufferViewContents<T, S>::ReadValue(v8::Local<v8::Value> buf) {
     auto ab = buf.As<v8::ArrayBuffer>();
     length_ = ab->ByteLength();
     data_ = static_cast<T*>(ab->Data());
+    was_detached_ = ab->WasDetached();
   } else {
     CHECK(buf->IsSharedArrayBuffer());
     auto sab = buf.As<v8::SharedArrayBuffer>();
@@ -574,11 +593,11 @@ inline bool IsSafeJsInt(v8::Local<v8::Value> v) {
   return false;
 }
 
-constexpr size_t FastStringKey::HashImpl(const char* str) {
+constexpr size_t FastStringKey::HashImpl(std::string_view str) {
   // Low-quality hash (djb2), but just fine for current use cases.
   size_t h = 5381;
-  while (*str != '\0') {
-    h = h * 33 + *(str++);  // NOLINT(readability/pointer_notation)
+  for (const char c : str) {
+    h = h * 33 + c;
   }
   return h;
 }
@@ -589,20 +608,38 @@ constexpr size_t FastStringKey::Hash::operator()(
 }
 
 constexpr bool FastStringKey::operator==(const FastStringKey& other) const {
-  const char* p1 = name_;
-  const char* p2 = other.name_;
-  if (p1 == p2) return true;
-  do {
-    if (*(p1++) != *(p2++)) return false;
-  } while (*p1 != '\0');
-  return *p2 == '\0';
+  return name_ == other.name_;
 }
 
-constexpr FastStringKey::FastStringKey(const char* name)
-  : name_(name), cached_hash_(HashImpl(name)) {}
+constexpr FastStringKey::FastStringKey(std::string_view name)
+    : name_(name), cached_hash_(HashImpl(name)) {}
 
-constexpr const char* FastStringKey::c_str() const {
+constexpr std::string_view FastStringKey::as_string_view() const {
   return name_;
+}
+
+// Inline so the compiler can fully optimize it away on Unix platforms.
+bool IsWindowsBatchFile(const char* filename) {
+#ifdef _WIN32
+  static constexpr bool kIsWindows = true;
+#else
+  static constexpr bool kIsWindows = false;
+#endif  // _WIN32
+  if (kIsWindows && !IsReverted(SECURITY_REVERT_CVE_2024_27980)) {
+    std::string file_with_extension = filename;
+    // Regex to match the last extension part after the last dot, ignoring
+    // trailing spaces and dots
+    std::regex extension_regex(R"(\.([a-zA-Z0-9]+)\s*[\.\s]*$)");
+    std::smatch match;
+    std::string extension;
+
+    if (std::regex_search(file_with_extension, match, extension_regex)) {
+      extension = ToLower(match[1].str());
+    }
+
+    return !extension.empty() && (extension == "cmd" || extension == "bat");
+  }
+  return false;
 }
 
 }  // namespace node

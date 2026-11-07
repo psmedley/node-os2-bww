@@ -7,7 +7,6 @@
 #include "src/builtins/accessors.h"
 #include "src/codegen/assembler-inl.h"
 #include "src/codegen/compiler.h"
-#include "src/codegen/reloc-info.h"
 #include "src/codegen/script-details.h"
 #include "src/common/globals.h"
 #include "src/debug/debug-frames.h"
@@ -17,9 +16,8 @@
 #include "src/execution/isolate-inl.h"
 #include "src/interpreter/bytecode-array-iterator.h"
 #include "src/interpreter/bytecodes.h"
-#include "src/objects/code-inl.h"
 #include "src/objects/contexts.h"
-#include "src/objects/string-set-inl.h"
+#include "src/snapshot/snapshot.h"
 
 #if V8_ENABLE_WEBASSEMBLY
 #include "src/debug/debug-wasm-objects.h"
@@ -211,9 +209,7 @@ DebugEvaluate::ContextBuilder::ContextBuilder(Isolate* isolate,
     : isolate_(isolate),
       frame_inspector_(frame, inlined_jsframe_index, isolate),
       scope_iterator_(isolate, &frame_inspector_,
-                      v8_flags.experimental_reuse_locals_blocklists
-                          ? ScopeIterator::ReparseStrategy::kScriptIfNeeded
-                          : ScopeIterator::ReparseStrategy::kScript) {
+                      ScopeIterator::ReparseStrategy::kScript) {
   Handle<Context> outer_context(frame_inspector_.GetFunction()->context(),
                                 isolate);
   evaluation_context_ = outer_context;
@@ -249,16 +245,8 @@ DebugEvaluate::ContextBuilder::ContextBuilder(Isolate* isolate,
     if (scope_iterator_.HasContext()) {
       context_chain_element.wrapped_context = scope_iterator_.CurrentContext();
     }
-    if (v8_flags.experimental_reuse_locals_blocklists) {
-      // With the re-use experiment we only need `DebugEvaluateContexts` up
-      // to (and including) the paused function scope so the evaluated
-      // expression can access the materialized stack locals.
-      if (!scope_iterator_.InInnerScope()) break;
-    } else {
-      CHECK(!v8_flags.experimental_reuse_locals_blocklists);
-      if (!scope_iterator_.InInnerScope()) {
-        context_chain_element.blocklist = scope_iterator_.GetLocals();
-      }
+    if (!scope_iterator_.InInnerScope()) {
+      context_chain_element.blocklist = scope_iterator_.GetLocals();
     }
     context_chain_.push_back(context_chain_element);
   }
@@ -272,28 +260,10 @@ DebugEvaluate::ContextBuilder::ContextBuilder(Isolate* isolate,
     ContextChainElement element = *rit;
     scope_info = ScopeInfo::CreateForWithScope(isolate, scope_info);
     scope_info->SetIsDebugEvaluateScope();
-
-    if (v8_flags.experimental_reuse_locals_blocklists) {
-      if (rit == context_chain_.rbegin()) {
-        // The DebugEvaluateContext we create for the closure scope is the only
-        // DebugEvaluateContext with a block list. This means we'll retrieve
-        // the existing block list from the paused function scope
-        // and also associate the temporary scope_info we create here with that
-        // blocklist.
-        Handle<ScopeInfo> function_scope_info = handle(
-            frame_inspector_.GetFunction()->shared().scope_info(), isolate_);
-        Handle<Object> block_list = handle(
-            isolate_->LocalsBlockListCacheGet(function_scope_info), isolate_);
-        CHECK(block_list->IsStringSet());
-        isolate_->LocalsBlockListCacheSet(scope_info, Handle<ScopeInfo>::null(),
-                                          Handle<StringSet>::cast(block_list));
-      }
-    } else if (!element.blocklist.is_null()) {
-      CHECK(!v8_flags.experimental_reuse_locals_blocklists);
+    if (!element.blocklist.is_null()) {
       scope_info = ScopeInfo::RecreateWithBlockList(isolate, scope_info,
                                                     element.blocklist);
     }
-
     evaluation_context_ = factory->NewDebugEvaluateContext(
         evaluation_context_, scope_info, element.materialized_object,
         element.wrapped_context);
@@ -305,7 +275,7 @@ void DebugEvaluate::ContextBuilder::UpdateValues() {
   for (ContextChainElement& element : context_chain_) {
     if (!element.materialized_object.is_null()) {
       Handle<FixedArray> keys =
-          KeyAccumulator::GetKeys(isolate_, element.materialized_object,
+          KeyAccumulator::GetKeys(element.materialized_object,
                                   KeyCollectionMode::kOwnOnly,
                                   ENUMERABLE_STRINGS)
               .ToHandleChecked();
@@ -436,7 +406,7 @@ bool DebugEvaluate::IsSideEffectFreeIntrinsic(Runtime::FunctionId id) {
     INLINE_INTRINSIC_ALLOWLIST(INLINE_CASE)
     return true;
     default:
-      if (v8_flags.trace_side_effect_free_debug_evaluate) {
+      if (FLAG_trace_side_effect_free_debug_evaluate) {
         PrintF("[debug-evaluate] intrinsic %s may cause side effect.\n",
                Runtime::FunctionForId(id)->name);
       }
@@ -602,8 +572,6 @@ DebugInfo::SideEffectState BuiltinGetSideEffectState(Builtin id) {
     case Builtin::kArrayPrototypeFlat:
     case Builtin::kArrayPrototypeFlatMap:
     case Builtin::kArrayPrototypeJoin:
-    case Builtin::kArrayPrototypeGroup:
-    case Builtin::kArrayPrototypeGroupToMap:
     case Builtin::kArrayPrototypeKeys:
     case Builtin::kArrayPrototypeLastIndexOf:
     case Builtin::kArrayPrototypeSlice:
@@ -1006,7 +974,7 @@ DebugInfo::SideEffectState BuiltinGetSideEffectState(Builtin id) {
       return DebugInfo::kRequiresRuntimeChecks;
 
     default:
-      if (v8_flags.trace_side_effect_free_debug_evaluate) {
+      if (FLAG_trace_side_effect_free_debug_evaluate) {
         PrintF("[debug-evaluate] built-in %s may cause side effect.\n",
                Builtins::name(id));
       }
@@ -1034,7 +1002,7 @@ bool BytecodeRequiresRuntimeCheck(interpreter::Bytecode bytecode) {
 // static
 DebugInfo::SideEffectState DebugEvaluate::FunctionGetSideEffectState(
     Isolate* isolate, Handle<SharedFunctionInfo> info) {
-  if (v8_flags.trace_side_effect_free_debug_evaluate) {
+  if (FLAG_trace_side_effect_free_debug_evaluate) {
     PrintF("[debug-evaluate] Checking function %s for side effect.\n",
            info->DebugNameCStr().get());
   }
@@ -1045,7 +1013,7 @@ DebugInfo::SideEffectState DebugEvaluate::FunctionGetSideEffectState(
     // Check bytecodes against allowlist.
     Handle<BytecodeArray> bytecode_array(info->GetBytecodeArray(isolate),
                                          isolate);
-    if (v8_flags.trace_side_effect_free_debug_evaluate) {
+    if (FLAG_trace_side_effect_free_debug_evaluate) {
       bytecode_array->Print();
     }
     bool requires_runtime_checks = false;
@@ -1058,7 +1026,7 @@ DebugInfo::SideEffectState DebugEvaluate::FunctionGetSideEffectState(
         continue;
       }
 
-      if (v8_flags.trace_side_effect_free_debug_evaluate) {
+      if (FLAG_trace_side_effect_free_debug_evaluate) {
         PrintF("[debug-evaluate] bytecode %s may cause side effect.\n",
                interpreter::Bytecodes::ToString(bytecode));
       }
@@ -1104,11 +1072,9 @@ static bool TransitivelyCalledBuiltinHasNoSideEffect(Builtin caller,
     case Builtin::kArrayForEachLoopContinuation:
     case Builtin::kArrayIncludesHoleyDoubles:
     case Builtin::kArrayIncludesPackedDoubles:
-    case Builtin::kArrayIncludesSmi:
     case Builtin::kArrayIncludesSmiOrObject:
     case Builtin::kArrayIndexOfHoleyDoubles:
     case Builtin::kArrayIndexOfPackedDoubles:
-    case Builtin::kArrayIndexOfSmi:
     case Builtin::kArrayIndexOfSmiOrObject:
     case Builtin::kArrayMapLoopContinuation:
     case Builtin::kArrayReduceLoopContinuation:
@@ -1138,7 +1104,6 @@ static bool TransitivelyCalledBuiltinHasNoSideEffect(Builtin caller,
     case Builtin::kExtractFastJSArray:
     case Builtin::kFastNewObject:
     case Builtin::kFindOrderedHashMapEntry:
-    case Builtin::kFindOrderedHashSetEntry:
     case Builtin::kFlatMapIntoArray:
     case Builtin::kFlattenIntoArray:
     case Builtin::kGetProperty:
@@ -1155,8 +1120,10 @@ static bool TransitivelyCalledBuiltinHasNoSideEffect(Builtin caller,
     case Builtin::kProxyHasProperty:
     case Builtin::kProxyIsExtensible:
     case Builtin::kProxyGetPrototypeOf:
-    case Builtin::kRecordWriteSaveFP:
-    case Builtin::kRecordWriteIgnoreFP:
+    case Builtin::kRecordWriteEmitRememberedSetSaveFP:
+    case Builtin::kRecordWriteOmitRememberedSetSaveFP:
+    case Builtin::kRecordWriteEmitRememberedSetIgnoreFP:
+    case Builtin::kRecordWriteOmitRememberedSetIgnoreFP:
     case Builtin::kStringAdd_CheckNone:
     case Builtin::kStringEqual:
     case Builtin::kStringIndexOf:
@@ -1238,11 +1205,10 @@ void DebugEvaluate::VerifyTransitiveBuiltins(Isolate* isolate) {
     for (RelocIterator it(code, mode); !it.done(); it.next()) {
       RelocInfo* rinfo = it.rinfo();
       DCHECK(RelocInfo::IsCodeTargetMode(rinfo->rmode()));
-      CodeLookupResult lookup_result =
-          isolate->heap()->GcSafeFindCodeForInnerPointer(
-              rinfo->target_address());
-      CHECK(lookup_result.IsFound());
-      Builtin callee = lookup_result.builtin_id();
+      Code callee_code = isolate->heap()->GcSafeFindCodeForInnerPointer(
+          rinfo->target_address());
+      if (!callee_code.is_builtin()) continue;
+      Builtin callee = static_cast<Builtin>(callee_code.builtin_id());
       if (BuiltinGetSideEffectState(callee) == DebugInfo::kHasNoSideEffect) {
         continue;
       }
@@ -1256,9 +1222,8 @@ void DebugEvaluate::VerifyTransitiveBuiltins(Isolate* isolate) {
     }
   }
   CHECK(!failed);
-#if defined(V8_TARGET_ARCH_PPC) || defined(V8_TARGET_ARCH_PPC64) ||      \
-    defined(V8_TARGET_ARCH_MIPS64) || defined(V8_TARGET_ARCH_RISCV32) || \
-    defined(V8_TARGET_ARCH_RISCV64)
+#if defined(V8_TARGET_ARCH_PPC) || defined(V8_TARGET_ARCH_PPC64) || \
+    defined(V8_TARGET_ARCH_MIPS64)
   // Isolate-independent builtin calls and jumps do not emit reloc infos
   // on PPC. We try to avoid using PC relative code due to performance
   // issue with especially older hardwares.

@@ -99,18 +99,12 @@ class RegExpImpl final : public AllStatic {
   static void SetIrregexpMaxRegisterCount(FixedArray re, int value);
   static int IrregexpNumberOfCaptures(FixedArray re);
   static ByteArray IrregexpByteCode(FixedArray re, bool is_one_byte);
-  static CodeT IrregexpNativeCode(FixedArray re, bool is_one_byte);
+  static Code IrregexpNativeCode(FixedArray re, bool is_one_byte);
 };
 
 // static
 bool RegExp::CanGenerateBytecode() {
-  return v8_flags.regexp_interpret_all || v8_flags.regexp_tier_up;
-}
-
-// static
-bool RegExp::VerifyFlags(RegExpFlags flags) {
-  if (IsUnicode(flags) && IsUnicodeSets(flags)) return false;
-  return true;
+  return FLAG_regexp_interpret_all || FLAG_regexp_tier_up;
 }
 
 // static
@@ -225,15 +219,15 @@ MaybeHandle<Object> RegExp::Compile(Isolate* isolate, Handle<JSRegExp> re,
 
   bool has_been_compiled = false;
 
-  if (v8_flags.default_to_experimental_regexp_engine &&
+  if (FLAG_default_to_experimental_regexp_engine &&
       ExperimentalRegExp::CanBeHandled(parse_result.tree, flags,
                                        parse_result.capture_count)) {
-    DCHECK(v8_flags.enable_experimental_regexp_engine);
+    DCHECK(FLAG_enable_experimental_regexp_engine);
     ExperimentalRegExp::Initialize(isolate, re, pattern, flags,
                                    parse_result.capture_count);
     has_been_compiled = true;
   } else if (flags & JSRegExp::kLinear) {
-    DCHECK(v8_flags.enable_experimental_regexp_engine);
+    DCHECK(FLAG_enable_experimental_regexp_engine);
     if (!ExperimentalRegExp::CanBeHandled(parse_result.tree, flags,
                                           parse_result.capture_count)) {
       // TODO(mbid): The error could provide a reason for why the regexp can't
@@ -408,7 +402,7 @@ Handle<Object> RegExpImpl::AtomExec(Isolate* isolate, Handle<JSRegExp> re,
                                     Handle<String> subject, int index,
                                     Handle<RegExpMatchInfo> last_match_info) {
   static const int kNumRegisters = 2;
-  static_assert(kNumRegisters <= Isolate::kJSRegexpStaticOffsetsVectorSize);
+  STATIC_ASSERT(kNumRegisters <= Isolate::kJSRegexpStaticOffsetsVectorSize);
   int32_t* output_registers = isolate->jsregexp_static_offsets_vector();
 
   int res =
@@ -444,14 +438,14 @@ bool RegExpImpl::EnsureCompiledIrregexp(Isolate* isolate, Handle<JSRegExp> re,
   bool needs_tier_up_compilation =
       re->MarkedForTierUp() && bytecode.IsByteArray();
 
-  if (v8_flags.trace_regexp_tier_up && needs_tier_up_compilation) {
+  if (FLAG_trace_regexp_tier_up && needs_tier_up_compilation) {
     PrintF("JSRegExp object %p needs tier-up compilation\n",
            reinterpret_cast<void*>(re->ptr()));
   }
 
   if (!needs_initial_compilation && !needs_tier_up_compilation) {
     DCHECK(compiled_code.IsCodeT());
-    DCHECK_IMPLIES(v8_flags.regexp_interpret_all, bytecode.IsByteArray());
+    DCHECK_IMPLIES(FLAG_regexp_interpret_all, bytecode.IsByteArray());
     return true;
   }
 
@@ -601,7 +595,7 @@ bool RegExpImpl::CompileIrregexp(Isolate* isolate, Handle<JSRegExp> re,
   }
   data->set(JSRegExp::kIrregexpBacktrackLimit, Smi::FromInt(backtrack_limit));
 
-  if (v8_flags.trace_regexp_tier_up) {
+  if (FLAG_trace_regexp_tier_up) {
     PrintF("JSRegExp object %p %s size: %d\n",
            reinterpret_cast<void*>(re->ptr()),
            re->ShouldProduceBytecode() ? "bytecode" : "native code",
@@ -629,8 +623,8 @@ ByteArray RegExpImpl::IrregexpByteCode(FixedArray re, bool is_one_byte) {
   return ByteArray::cast(re.get(JSRegExp::bytecode_index(is_one_byte)));
 }
 
-CodeT RegExpImpl::IrregexpNativeCode(FixedArray re, bool is_one_byte) {
-  return CodeT::cast(re.get(JSRegExp::code_index(is_one_byte)));
+Code RegExpImpl::IrregexpNativeCode(FixedArray re, bool is_one_byte) {
+  return Code::cast(re.get(JSRegExp::code_index(is_one_byte)));
 }
 
 void RegExpImpl::IrregexpInitialize(Isolate* isolate, Handle<JSRegExp> re,
@@ -683,11 +677,11 @@ int RegExpImpl::IrregexpExecRaw(Isolate* isolate, Handle<JSRegExp> regexp,
       if (res != NativeRegExpMacroAssembler::RETRY) {
         DCHECK(res != NativeRegExpMacroAssembler::EXCEPTION ||
                isolate->has_pending_exception());
-        static_assert(static_cast<int>(NativeRegExpMacroAssembler::SUCCESS) ==
+        STATIC_ASSERT(static_cast<int>(NativeRegExpMacroAssembler::SUCCESS) ==
                       RegExp::RE_SUCCESS);
-        static_assert(static_cast<int>(NativeRegExpMacroAssembler::FAILURE) ==
+        STATIC_ASSERT(static_cast<int>(NativeRegExpMacroAssembler::FAILURE) ==
                       RegExp::RE_FAILURE);
-        static_assert(static_cast<int>(NativeRegExpMacroAssembler::EXCEPTION) ==
+        STATIC_ASSERT(static_cast<int>(NativeRegExpMacroAssembler::EXCEPTION) ==
                       RegExp::RE_EXCEPTION);
         return res;
       }
@@ -720,7 +714,7 @@ int RegExpImpl::IrregexpExecRaw(Isolate* isolate, Handle<JSRegExp> regexp,
           // The string has changed representation, and we must restart the
           // match.
           // We need to reset the tier up to start over with compilation.
-          if (v8_flags.regexp_tier_up) regexp->ResetLastTierUpTick();
+          if (FLAG_regexp_tier_up) regexp->ResetLastTierUpTick();
           is_one_byte = String::IsOneByteRepresentationUnderneath(*subject);
           EnsureCompiledIrregexp(isolate, regexp, subject, is_one_byte);
           break;
@@ -739,7 +733,7 @@ MaybeHandle<Object> RegExpImpl::IrregexpExec(
   subject = String::Flatten(isolate, subject);
 
 #ifdef DEBUG
-  if (v8_flags.trace_regexp_bytecodes && regexp->ShouldProduceBytecode()) {
+  if (FLAG_trace_regexp_bytecodes && regexp->ShouldProduceBytecode()) {
     PrintF("\n\nRegexp match:   /%s/\n\n", regexp->source().ToCString().get());
     PrintF("\n\nSubject string: '%s'\n\n", subject->ToCString().get());
   }
@@ -749,10 +743,10 @@ MaybeHandle<Object> RegExpImpl::IrregexpExec(
   // slower than the jitted code execution. If the tier-up strategy is turned
   // on, we want to avoid this performance penalty so we eagerly tier-up if the
   // subject string length is equal or greater than the given heuristic value.
-  if (v8_flags.regexp_tier_up &&
+  if (FLAG_regexp_tier_up &&
       subject->length() >= JSRegExp::kTierUpForSubjectLengthValue) {
     regexp->MarkTierUpForNextExec();
-    if (v8_flags.trace_regexp_tier_up) {
+    if (FLAG_trace_regexp_tier_up) {
       PrintF(
           "Forcing tier-up for very long strings in "
           "RegExpImpl::IrregexpExec\n");
@@ -908,13 +902,13 @@ bool RegExpImpl::Compile(Isolate* isolate, Zone* zone, RegExpCompileData* data,
     return false;
   }
 
-  if (v8_flags.trace_regexp_graph) DotPrinter::DotPrint("Start", data->node);
+  if (FLAG_trace_regexp_graph) DotPrinter::DotPrint("Start", data->node);
 
   // Create the correct assembler for the architecture.
   std::unique_ptr<RegExpMacroAssembler> macro_assembler;
   if (data->compilation_target == RegExpCompilationTarget::kNative) {
     // Native regexp implementation.
-    DCHECK(!v8_flags.jitless);
+    DCHECK(!FLAG_jitless);
 
     NativeRegExpMacroAssembler::Mode mode =
         is_one_byte ? NativeRegExpMacroAssembler::LATIN1
@@ -940,13 +934,13 @@ bool RegExpImpl::Compile(Isolate* isolate, Zone* zone, RegExpCompileData* data,
 #elif V8_TARGET_ARCH_PPC || V8_TARGET_ARCH_PPC64
     macro_assembler.reset(new RegExpMacroAssemblerPPC(isolate, zone, mode,
                                                       output_register_count));
+#elif V8_TARGET_ARCH_MIPS
+    macro_assembler.reset(new RegExpMacroAssemblerMIPS(isolate, zone, mode,
+                                                       output_register_count));
 #elif V8_TARGET_ARCH_MIPS64
     macro_assembler.reset(new RegExpMacroAssemblerMIPS(isolate, zone, mode,
                                                        output_register_count));
 #elif V8_TARGET_ARCH_RISCV64
-    macro_assembler.reset(new RegExpMacroAssemblerRISCV(isolate, zone, mode,
-                                                        output_register_count));
-#elif V8_TARGET_ARCH_RISCV32
     macro_assembler.reset(new RegExpMacroAssemblerRISCV(isolate, zone, mode,
                                                         output_register_count));
 #elif V8_TARGET_ARCH_LOONG64
@@ -962,14 +956,14 @@ bool RegExpImpl::Compile(Isolate* isolate, Zone* zone, RegExpCompileData* data,
   }
 
   macro_assembler->set_slow_safe(TooMuchRegExpCode(isolate, pattern));
-  if (v8_flags.enable_experimental_regexp_engine_on_excessive_backtracks &&
+  if (FLAG_enable_experimental_regexp_engine_on_excessive_backtracks &&
       ExperimentalRegExp::CanBeHandled(data->tree, flags,
                                        data->capture_count)) {
     if (backtrack_limit == JSRegExp::kNoBacktrackLimit) {
-      backtrack_limit = v8_flags.regexp_backtracks_before_fallback;
+      backtrack_limit = FLAG_regexp_backtracks_before_fallback;
     } else {
-      backtrack_limit = std::min(
-          backtrack_limit, v8_flags.regexp_backtracks_before_fallback.value());
+      backtrack_limit =
+          std::min(backtrack_limit, FLAG_regexp_backtracks_before_fallback);
     }
     macro_assembler->set_backtrack_limit(backtrack_limit);
     macro_assembler->set_can_fallback(true);
@@ -993,7 +987,7 @@ bool RegExpImpl::Compile(Isolate* isolate, Zone* zone, RegExpCompileData* data,
     RegExpMacroAssembler::GlobalMode mode = RegExpMacroAssembler::GLOBAL;
     if (data->tree->min_match() > 0) {
       mode = RegExpMacroAssembler::GLOBAL_NO_ZERO_LENGTH_CHECK;
-    } else if (IsEitherUnicode(flags)) {
+    } else if (IsUnicode(flags)) {
       mode = RegExpMacroAssembler::GLOBAL_UNICODE;
     }
     macro_assembler->set_global_mode(mode);
@@ -1002,7 +996,7 @@ bool RegExpImpl::Compile(Isolate* isolate, Zone* zone, RegExpCompileData* data,
   RegExpMacroAssembler* macro_assembler_ptr = macro_assembler.get();
 #ifdef DEBUG
   std::unique_ptr<RegExpMacroAssembler> tracer_macro_assembler;
-  if (v8_flags.trace_regexp_assembler) {
+  if (FLAG_trace_regexp_assembler) {
     tracer_macro_assembler.reset(
         new RegExpMacroAssemblerTracer(isolate, macro_assembler_ptr));
     macro_assembler_ptr = tracer_macro_assembler.get();
@@ -1015,7 +1009,7 @@ bool RegExpImpl::Compile(Isolate* isolate, Zone* zone, RegExpCompileData* data,
   // Code / bytecode printing.
   {
 #ifdef ENABLE_DISASSEMBLER
-    if (v8_flags.print_regexp_code &&
+    if (FLAG_print_regexp_code &&
         data->compilation_target == RegExpCompilationTarget::kNative) {
       CodeTracer::Scope trace_scope(isolate->GetCodeTracer());
       OFStream os(trace_scope.file());
@@ -1024,7 +1018,7 @@ bool RegExpImpl::Compile(Isolate* isolate, Zone* zone, RegExpCompileData* data,
       c->Disassemble(pattern_cstring.get(), os, isolate);
     }
 #endif
-    if (v8_flags.print_regexp_bytecode &&
+    if (FLAG_print_regexp_bytecode &&
         data->compilation_target == RegExpCompilationTarget::kBytecode) {
       Handle<ByteArray> bytecode = Handle<ByteArray>::cast(result.code);
       auto pattern_cstring = pattern->ToCString();
@@ -1034,7 +1028,7 @@ bool RegExpImpl::Compile(Isolate* isolate, Zone* zone, RegExpCompileData* data,
   }
 
   if (result.error != RegExpError::kNone) {
-    if (v8_flags.correctness_fuzzer_suppressions &&
+    if (FLAG_correctness_fuzzer_suppressions &&
         result.error == RegExpError::kStackOverflow) {
       FATAL("Aborting on stack overflow");
     }
@@ -1129,7 +1123,7 @@ RegExpGlobalCache::~RegExpGlobalCache() {
 }
 
 int RegExpGlobalCache::AdvanceZeroLength(int last_index) {
-  if (IsEitherUnicode(JSRegExp::AsRegExpFlags(regexp_->flags())) &&
+  if (IsUnicode(JSRegExp::AsRegExpFlags(regexp_->flags())) &&
       last_index + 1 < subject_->length() &&
       unibrow::Utf16::IsLeadSurrogate(subject_->Get(last_index)) &&
       unibrow::Utf16::IsTrailSurrogate(subject_->Get(last_index + 1))) {

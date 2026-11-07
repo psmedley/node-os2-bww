@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --allow-natives-syntax --wasm-dynamic-tiering --liftoff
-// Flags: --no-wasm-native-module-cache-enabled
+// Flags: --allow-natives-syntax --expose-gc --wasm-dynamic-tiering --liftoff
 // Make the test faster:
 // Flags: --wasm-tiering-budget=1000
 
@@ -32,7 +31,7 @@ function serializeModule() {
   const module = new WebAssembly.Module(wire_bytes);
   let instance = new WebAssembly.Instance(module, {foo: {bar: () => 1}});
   // Execute {f1} until it gets tiered up.
-  while (!%IsTurboFanFunction(instance.exports.f1)) {
+  while (%IsLiftoffFunction(instance.exports.f1)) {
     instance.exports.f1();
   }
   // Execute {f2} once, so that the module knows that this is a used function.
@@ -42,6 +41,11 @@ function serializeModule() {
 };
 
 const serialized_module = serializeModule();
+// Do some GCs to make sure the first module got collected and removed from the
+// module cache.
+gc();
+gc();
+gc();
 
 (function testSerializedModule() {
   print(arguments.callee.name);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2008-2022 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2008-2023 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -300,6 +300,8 @@ int SMIME_write_ASN1_ex(BIO *bio, ASN1_VALUE *val, BIO *data, int flags,
 
     if (ctype_nid == NID_pkcs7_enveloped) {
         msg_type = "enveloped-data";
+    } else if (ctype_nid == NID_id_smime_ct_authEnvelopedData) {
+        msg_type = "authEnveloped-data";
     } else if (ctype_nid == NID_pkcs7_signed) {
         if (econt_nid == NID_id_smime_ct_receipt)
             msg_type = "signed-receipt";
@@ -515,6 +517,13 @@ int SMIME_crlf_copy(BIO *in, BIO *out, int flags)
     char eol;
     int len;
     char linebuf[MAX_SMLEN];
+    int ret;
+
+    if (in == NULL || out == NULL) {
+        ERR_raise(ERR_LIB_ASN1, ERR_R_PASSED_NULL_PARAMETER);
+        return 0;
+    }
+
     /*
      * Buffer output so we don't write one line at a time. This is useful
      * when streaming as we don't end up with one OCTET STRING per line.
@@ -552,9 +561,12 @@ int SMIME_crlf_copy(BIO *in, BIO *out, int flags)
             }
         }
     }
-    (void)BIO_flush(out);
+    ret = BIO_flush(out);
     BIO_pop(out);
     BIO_free(bf);
+    if (ret <= 0)
+        return 0;
+
     return 1;
 }
 
