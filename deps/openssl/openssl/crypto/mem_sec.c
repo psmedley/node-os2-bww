@@ -20,6 +20,14 @@
 
 #include <string.h>
 
+/*
+ * OS/2 (kLIBC) has no mlock(), so the secure heap can't be implemented there.
+ * Fall back to the regular allocator as on other unsupported platforms.
+ */
+#if defined(__OS2__) && !defined(OPENSSL_NO_SECURE_MEMORY)
+# define OPENSSL_NO_SECURE_MEMORY
+#endif
+
 #ifndef OPENSSL_NO_SECURE_MEMORY
 # if defined(_WIN32)
 #  include <windows.h>
